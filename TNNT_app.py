@@ -24,23 +24,29 @@ from PIL import Image
 
 
 # =========================================================
-# ✅ 멀티 동호회용 설정
-#   - 아래 3개(동호회명/관리자 타이틀/파일prefix)만 바꾸면 전체가 같이 바뀜
-#   - 스코어보드(읽기전용) 타이틀/색/푸터는 APP_MODE로 자동 분기
+# ✅ 멀티 동호회 + 로그인(구글/이메일) + 클럽코드
+#   - (1) 구글 로그인(가능하면 st.experimental_user 사용)
+#   - (2) 클럽코드 입력 → 해당 클럽의 {club}_players.json / {club}_sessions.json 로드
+#   - (3) 설정창에서 클럽코드 변경 가능
+#   - (4) (선택) 관리자 이메일만 쓰기 허용 (st.secrets ADMIN_EMAILS / ADMIN_EMAILS_BY_CLUB)
+#
+# ✅ 배포 팁(선택)
+#   - Streamlit Community Cloud 인증을 켜면 st.experimental_user로 구글 이메일이 잡힘.
+#   - 인증이 없거나 로컬 실행이면 임시로 이메일 입력 로그인 UI가 뜸(보안용 아님).
 # =========================================================
-def CLUB_NAME() -> str:
-    return "마리아상암포바"
 
-# ✅ 관리자(메인) 앱 타이틀
+# 기본(폴백) 클럽
+DEFAULT_CLUB_CODE = os.getenv("MSC_DEFAULT_CLUB_CODE", "MSC").strip()
+DEFAULT_CLUB_NAME = os.getenv("MSC_DEFAULT_CLUB_NAME", "마리아상암포바").strip()
+
+# ✅ 관리자(메인) 앱 타이틀(표시용)
 ADMIN_PURPOSE = "관리 도우미(Beta)"  # 예: "도우미 (Beta)"
 
-# ✅ 스코어보드(읽기전용) 앱 타이틀
+# ✅ 스코어보드(읽기전용) 앱 타이틀(표시용)
 SCOREBOARD_PURPOSE = "스코어보드 (Beta)"
 
-# ✅ 데이터 파일 prefix (예: "MSC" → MSC_players.json / MSC_sessions.json)
-DATA_FILE_PREFIX = "MSC"
-
-# ✅ 앱 모드: "admin"(기본) / "observer"(옵저버) / "scoreboard"(스코어보드)
+# ✅ 앱 모드(환경변수 호환)
+#  - "admin"(기본) / "observer"(옵저버) / "scoreboard"(스코어보드)
 APP_MODE = os.getenv("MSC_APP_MODE", "admin").strip().lower()
 
 # - 탭 제한(3탭만 보임): observer + scoreboard
@@ -49,17 +55,255 @@ IS_OBSERVER = APP_MODE in ("observer", "scb", "scoreboard")
 # - 스코어보드 전용(브랜딩/완전 읽기전용)
 IS_SCOREBOARD = APP_MODE in ("scb", "scoreboard")
 
-# ✅ 완전 읽기 전용(어떤 경우에도 players/sessions 저장(쓰기) 금지)
-#   - 스코어보드에서는 기본 True
-#   - 필요하면 환경변수로 강제할 수 있음: MSC_READ_ONLY=1
-READ_ONLY = IS_SCOREBOARD or ((APP_MODE != "admin") and (os.getenv("MSC_READ_ONLY", "0").strip() == "1"))
+
+def _sanitize_club_code(code: str) -> str:
+    code = (code or "").strip()
+    if not code:
+        return DEFAULT_CLUB_CODE
+    # 영문/숫자/언더스코어/대시만 허용
+    code = re.sub(r"[^A-Za-z0-9_-]+", "", code)
+    return (code[:32] or DEFAULT_CLUB_CODE).strip()
+
+
+def _load_club_registry() -> dict:
+    """st.secrets["CLUB_REGISTRY"] 지원 (toml dict 또는 JSON string 모두 허용)
+    예)
+      [CLUB_REGISTRY.MSC]
+      name="마리아상암포바"
+    """
+    try:
+        reg = st.secrets.get("CLUB_REGISTRY", {})
+    except Exception:
+        reg = {}
+    if isinstance(reg, str):
+        try:
+            reg = json.loads(reg)
+        except Exception:
+            reg = {}
+    return reg if isinstance(reg, dict) else {}
+
+
+def get_club_name(club_code: str) -> str:
+    club_code = _sanitize_club_code(club_code)
+    reg = _load_club_registry()
+    meta = reg.get(club_code) if isinstance(reg, dict) else None
+    if isinstance(meta, dict) and meta.get("name"):
+        return str(meta.get("name")).strip()
+    # registry에 없으면 코드 그대로(또는 기본명)
+    if club_code == DEFAULT_CLUB_CODE:
+        return DEFAULT_CLUB_NAME
+    return club_code
+
+
+def _get_user_email_from_streamlit() -> str | None:
+    """가능하면 Streamlit 인증 정보에서 이메일을 가져온다."""
+    # Streamlit 버전/배포환경에 따라 제공 키가 조금 다를 수 있어서 방어적으로 처리
+    try:
+        u = getattr(st, "experimental_user", None)
+        if u:
+            uinfo = u if isinstance(u, dict) else dict(u)
+            email = (
+                uinfo.get("email")
+                or uinfo.get("email_address")
+                or uinfo.get("user_email")
+                or uinfo.get("login")
+            )
+            if email:
+                return str(email).strip()
+    except Exception:
+        pass
+
+    try:
+        u = getattr(st, "user", None)
+        if u:
+            uinfo = u if isinstance(u, dict) else dict(u)
+            email = (
+                uinfo.get("email")
+                or uinfo.get("email_address")
+                or uinfo.get("user_email")
+                or uinfo.get("login")
+            )
+            if email:
+                return str(email).strip()
+    except Exception:
+        pass
+
+    return None
+
+
+def _get_admin_emails_for_club(club_code: str) -> set:
+    """관리자 이메일 allowlist (선택). secrets에 없으면 빈 set"""
+    club_code = _sanitize_club_code(club_code)
+    emails = set()
+
+    try:
+        raw = st.secrets.get("ADMIN_EMAILS", None)
+    except Exception:
+        raw = None
+
+    if raw:
+        if isinstance(raw, str):
+            parts = [x.strip() for x in raw.replace(";", ",").split(",") if x.strip()]
+            emails.update(parts)
+        elif isinstance(raw, (list, tuple, set)):
+            emails.update([str(x).strip() for x in raw if str(x).strip()])
+
+    # 클럽별 관리자
+    try:
+        by = st.secrets.get("ADMIN_EMAILS_BY_CLUB", {})
+    except Exception:
+        by = {}
+    if isinstance(by, str):
+        try:
+            by = json.loads(by)
+        except Exception:
+            by = {}
+    if isinstance(by, dict):
+        club_list = by.get(club_code)
+        if isinstance(club_list, str):
+            parts = [x.strip() for x in club_list.replace(";", ",").split(",") if x.strip()]
+            emails.update(parts)
+        elif isinstance(club_list, (list, tuple, set)):
+            emails.update([str(x).strip() for x in club_list if str(x).strip()])
+
+    return set(e.lower() for e in emails)
+
+
+def ensure_login_and_club():
+    """로그인 + 클럽코드가 준비될 때까지 UI를 띄우고, 준비되면 계속 진행한다."""
+    # 1) 이메일 확보 (가능하면 구글 로그인/Streamlit 인증)
+    auto_email = _get_user_email_from_streamlit()
+    if auto_email and not st.session_state.get("user_email"):
+        st.session_state["user_email"] = auto_email
+        st.rerun()
+
+    # 2) 클럽코드(세션) 초기값
+    if "club_code" not in st.session_state:
+        # URL 쿼리 파라미터 club=... 지원(옵션)
+        try:
+            q = st.query_params if hasattr(st, "query_params") else st.experimental_get_query_params()
+            qclub = q.get("club")
+            if isinstance(qclub, (list, tuple)):
+                qclub = qclub[0] if qclub else None
+            if qclub:
+                st.session_state["club_code"] = _sanitize_club_code(str(qclub))
+            else:
+                st.session_state["club_code"] = ""
+            # 쿼리로 클럽코드가 들어온 경우, 글로벌 상수 재계산을 위해 1회 rerun
+            if qclub:
+                st.rerun()
+        except Exception:
+            st.session_state["club_code"] = ""
+
+    # --- Sidebar UI
+    with st.sidebar:
+        st.markdown("### 🔐 로그인 / 클럽 선택")
+
+        email = (st.session_state.get("user_email") or "").strip()
+        if email:
+            st.caption(f"로그인: **{email}**")
+        else:
+            st.info("구글 로그인이 연결되지 않은 환경입니다. (로컬/인증 미설정)\n임시로 이메일을 입력해 주세요.")
+            email_in = st.text_input("이메일(임시 로그인)", value="", placeholder="you@gmail.com", key="tmp_login_email")
+            if st.button("로그인", use_container_width=True):
+                email_in = (email_in or "").strip()
+                if not email_in:
+                    st.warning("이메일을 입력해 주세요.")
+                    st.stop()
+                st.session_state["user_email"] = email_in
+                st.rerun()
+
+        st.markdown("---")
+
+        cur = (st.session_state.get("club_code") or "").strip()
+        club_in = st.text_input("클럽코드", value=cur, placeholder="예: MSC", key="club_code_input")
+        if st.button("클럽코드 적용", use_container_width=True):
+            new_code = _sanitize_club_code(club_in).upper()
+            # 클럽이 바뀌면 데이터 캐시(로스터/세션) 비우기
+            if st.session_state.get("club_code") != new_code:
+                st.session_state["club_code"] = new_code
+                for k in ("roster", "sessions"):
+                    if k in st.session_state:
+                        del st.session_state[k]
+            else:
+                st.session_state["club_code"] = new_code
+            st.rerun()
+
+        # 편의 버튼
+        cols = st.columns(2)
+        with cols[0]:
+            if st.button("로그아웃", use_container_width=True):
+                for k in ("user_email", "club_code", "roster", "sessions"):
+                    if k in st.session_state:
+                        del st.session_state[k]
+                st.rerun()
+        with cols[1]:
+            if st.button("기본 클럽", use_container_width=True):
+                st.session_state["club_code"] = _sanitize_club_code(DEFAULT_CLUB_CODE).upper()
+                for k in ("roster", "sessions"):
+                    if k in st.session_state:
+                        del st.session_state[k]
+                st.rerun()
+
+        # 현재 클럽 표시
+        active_code = _sanitize_club_code(st.session_state.get("club_code", "")).upper()
+        if active_code:
+            st.success(f"현재 클럽: **{get_club_name(active_code)}**\n코드: `{active_code}`")
+        else:
+            st.warning("클럽코드를 입력해 주세요.")
+
+    # 메인 영역 안내(클럽코드 없으면 진행 중단)
+    active_code = _sanitize_club_code(st.session_state.get("club_code", "")).upper()
+    if not active_code:
+        st.markdown("<div style='height:1.2rem;'></div>", unsafe_allow_html=True)
+        st.markdown(
+            """
+            <div style="
+                padding:1.0rem 1.1rem;
+                border-radius:14px;
+                border:1px solid #e5e7eb;
+                background:#f9fafb;
+                font-size:0.95rem;
+                line-height:1.6;
+            ">
+              <b>클럽코드</b>를 입력하면 해당 클럽의 기록을 불러옵니다.<br/>
+              왼쪽 사이드바에서 <b>클럽코드</b>를 입력 후 <b>적용</b>을 눌러 주세요.
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        st.stop()
+
+    # user_email은 없어도(인증 없는 환경) 통계 보기만 가능하게 허용
+    return active_code
+
+
+def CLUB_NAME() -> str:
+    code = _sanitize_club_code(st.session_state.get("club_code", DEFAULT_CLUB_CODE)).upper()
+    return get_club_name(code)
+
 
 def APP_PURPOSE_NAME() -> str:
     return SCOREBOARD_PURPOSE if IS_SCOREBOARD else ADMIN_PURPOSE
 
-APP_TITLE = f"{CLUB_NAME()} {APP_PURPOSE_NAME()}"
+
+# ✅ 클럽코드 기반 데이터 파일(prefix)
+DATA_FILE_PREFIX = _sanitize_club_code(st.session_state.get("club_code", DEFAULT_CLUB_CODE)).upper()
 PLAYERS_FILE = f"{DATA_FILE_PREFIX}_players.json"
 SESSIONS_FILE = f"{DATA_FILE_PREFIX}_sessions.json"
+
+# ✅ (선택) 관리자 이메일만 쓰기 허용
+USER_EMAIL = (st.session_state.get("user_email") or "").strip()
+ADMIN_EMAILS = _get_admin_emails_for_club(DATA_FILE_PREFIX)
+IS_ADMIN_USER = bool(USER_EMAIL) and (USER_EMAIL.lower() in ADMIN_EMAILS) if ADMIN_EMAILS else (APP_MODE == "admin")
+
+# ✅ 완전 읽기 전용(어떤 경우에도 players/sessions 저장(쓰기) 금지)
+#   - 스코어보드에서는 기본 True
+#   - 필요하면 환경변수로 강제할 수 있음: MSC_READ_ONLY=1
+FORCE_READ_ONLY = os.getenv("MSC_READ_ONLY", "0").strip() == "1"
+READ_ONLY = FORCE_READ_ONLY or IS_SCOREBOARD or (not IS_ADMIN_USER)
+
+APP_TITLE = f"{CLUB_NAME()} {APP_PURPOSE_NAME()}"
 
 
 def render_footer():
@@ -269,21 +513,21 @@ if IS_OBSERVER:
 
 st.markdown("""
 <style>
-/* ✅ 상단 타이틀(로고/앱명) 위 여백 축소 */
+/* ✅ 상단 타이틀(로고/앱명) 위 여백 최소화 */
 [data-testid="stAppViewContainer"] .block-container{
-  padding-top: 0.9rem !important;
+  padding-top: 0.12rem !important;
 }
 [data-testid="stAppViewContainer"] h1{
-  margin-top: 0.15rem !important;
-  margin-bottom: 0.9rem !important;
+  margin-top: 0rem !important;
+  margin-bottom: 0.45rem !important;
 }
 @media (max-width: 900px){
   [data-testid="stAppViewContainer"] .block-container{
-    padding-top: 0.55rem !important;
+    padding-top: 0.08rem !important;
   }
   [data-testid="stAppViewContainer"] h1{
-    margin-top: 0.05rem !important;
-    margin-bottom: 0.7rem !important;
+    margin-top: 0rem !important;
+    margin-bottom: 0.35rem !important;
   }
 }
 
@@ -524,13 +768,16 @@ st.markdown("""
 <style>
 /* Streamlit 기본 메뉴/헤더/푸터 숨김 */
 #MainMenu {visibility: hidden;}
-footer {visibility: hidden;}
-header {visibility: hidden;}
+/* ✅ 상단 헤더/푸터 영역 자체를 제거해서 위쪽 여백도 같이 제거 */
+header, footer {visibility: hidden; height: 0 !important;}
+[data-testid="stHeader"] {display: none !important; height: 0 !important;}
+[data-testid="stAppViewContainer"] > header {display: none !important; height: 0 !important;}
+[data-testid="stFooter"] {display: none !important; height: 0 !important;}
 
 /* 상단 툴바/장식/상태 아이콘 숨김 */
 div[data-testid="stToolbar"] {visibility: hidden !important; height: 0 !important;}
-div[data-testid="stDecoration"] {visibility: hidden !important;}
-div[data-testid="stStatusWidget"] {visibility: hidden !important;}
+div[data-testid="stDecoration"] {visibility: hidden !important; height: 0 !important;}
+div[data-testid="stStatusWidget"] {visibility: hidden !important; height: 0 !important;}
 .stDeployButton {display: none !important;}
 </style>
 """, unsafe_allow_html=True)
@@ -1104,13 +1351,50 @@ def load_json(path, default):
     token = st.secrets.get("GITHUB_TOKEN", "")
     token = token if token else None
 
-    # 파일별 GitHub 경로(기존 secrets 키 그대로 사용)
-    if path == SESSIONS_FILE:
-        gh_path = st.secrets.get("GITHUB_FILE_PATH", SESSIONS_FILE)
-    elif path == PLAYERS_FILE:
-        gh_path = st.secrets.get("GITHUB_PLAYERS_FILE_PATH", PLAYERS_FILE)
+# ---------------------------------------------------------
+# 파일별 GitHub 경로(멀티클럽 지원)
+#  - 권장: secrets에 GITHUB_DATA_DIR="data" 같이 베이스 디렉토리만 두고
+#          각 클럽은 data/{club}_sessions.json 형태로 자동 구성
+#
+#  - (옵션) 템플릿 지원:
+#      GITHUB_FILE_PATH_TEMPLATE = "data/{club}_sessions.json"
+#      GITHUB_PLAYERS_FILE_PATH_TEMPLATE = "data/{club}_players.json"
+#
+#  - (레거시) 단일 파일 경로:
+#      GITHUB_FILE_PATH / GITHUB_PLAYERS_FILE_PATH
+#      (기본 클럽(DEFAULT_CLUB_CODE)에서만 적용)
+# ---------------------------------------------------------
+def _resolve_github_path(local_path: str) -> str:
+    local_path = str(local_path).strip().lstrip("/")
+    base_dir = str(st.secrets.get("GITHUB_DATA_DIR", "") or "").strip().strip("/")
+    club = DATA_FILE_PREFIX
+
+    if local_path == SESSIONS_FILE:
+        tpl = st.secrets.get("GITHUB_FILE_PATH_TEMPLATE", None) or st.secrets.get("GITHUB_SESSIONS_PATH_TEMPLATE", None)
+        legacy = st.secrets.get("GITHUB_FILE_PATH", None)
+    elif local_path == PLAYERS_FILE:
+        tpl = st.secrets.get("GITHUB_PLAYERS_FILE_PATH_TEMPLATE", None) or st.secrets.get("GITHUB_PLAYERS_PATH_TEMPLATE", None)
+        legacy = st.secrets.get("GITHUB_PLAYERS_FILE_PATH", None)
     else:
-        gh_path = path
+        tpl = None
+        legacy = None
+
+    if tpl:
+        try:
+            return str(tpl).format(club=club, club_code=club, filename=local_path).strip().lstrip("/")
+        except Exception:
+            pass
+
+    # 레거시 단일 경로는 기본 클럽에서만 적용(멀티클럽에서 섞이는 것 방지)
+    if legacy and (club == _sanitize_club_code(DEFAULT_CLUB_CODE).upper()):
+        return str(legacy).strip().lstrip("/")
+
+    if base_dir:
+        return f"{base_dir}/{local_path}"
+
+    return local_path
+
+    gh_path = _resolve_github_path(path)
 
     # 1) GitHub 우선(옵저버)
     if prefer_github:
@@ -3251,6 +3535,12 @@ st.markdown("""
 
 st.markdown(MOBILE_CSS, unsafe_allow_html=True)
 
+# ---------------------------------------------------------
+# ✅ 로그인 + 클럽코드 선택(멀티클럽)
+#   - 준비될 때까지 여기서 멈추고, 준비되면 아래 로드 로직 진행
+# ---------------------------------------------------------
+_active_club_code = ensure_login_and_club()
+
 if "roster" not in st.session_state:
     st.session_state.roster = load_players()
 if "sessions" not in st.session_state:
@@ -3768,7 +4058,21 @@ def render_tab_player_manage(tab):
                 if not isinstance(roster_to_save, list):
                     roster_to_save = roster if isinstance(roster, list) else []
 
-                file_path_players = st.secrets.get("GITHUB_PLAYERS_FILE_PATH", PLAYERS_FILE)
+                file_path_players = (st.secrets.get("GITHUB_PLAYERS_FILE_PATH", "") or "").strip().lstrip("/")
+                if not file_path_players:
+                    tpl_p = st.secrets.get("GITHUB_PLAYERS_FILE_PATH_TEMPLATE", None) or st.secrets.get("GITHUB_PLAYERS_PATH_TEMPLATE", None)
+                    base_dir = str(st.secrets.get("GITHUB_DATA_DIR", "") or "").strip().strip("/")
+                    if tpl_p:
+                        try:
+                            file_path_players = str(tpl_p).format(club=DATA_FILE_PREFIX, club_code=DATA_FILE_PREFIX, filename=PLAYERS_FILE).strip().lstrip("/")
+                        except Exception:
+                            file_path_players = ""
+                    if (not file_path_players) and base_dir:
+                        file_path_players = f"{base_dir}/{PLAYERS_FILE}"
+                    if (not file_path_players) and (DATA_FILE_PREFIX == _sanitize_club_code(DEFAULT_CLUB_CODE).upper()):
+                        file_path_players = str(st.secrets.get("GITHUB_PLAYERS_FILE_PATH", PLAYERS_FILE)).strip().lstrip("/")
+                    if not file_path_players:
+                        file_path_players = PLAYERS_FILE
                 repo = st.secrets.get("GITHUB_REPO", "")
                 branch = st.secrets.get("GITHUB_BRANCH", "main")
 
@@ -8260,7 +8564,21 @@ with tab3:
                             repo = str(st.secrets.get("GITHUB_REPO", "")).strip()
                             branch = str(st.secrets.get("GITHUB_BRANCH", "main")).strip()
                             token = st.secrets.get("GITHUB_TOKEN", "") or None
-                            file_path = str(st.secrets.get("GITHUB_SESSIONS_FILE_PATH", st.secrets.get("GITHUB_FILE_PATH", SESSIONS_FILE))).strip().lstrip("/")
+                            file_path = str(st.secrets.get("GITHUB_SESSIONS_FILE_PATH", "") or "").strip().lstrip("/")
+                            if not file_path:
+                                tpl_s = st.secrets.get("GITHUB_FILE_PATH_TEMPLATE", None) or st.secrets.get("GITHUB_SESSIONS_PATH_TEMPLATE", None)
+                                base_dir = str(st.secrets.get("GITHUB_DATA_DIR", "") or "").strip().strip("/")
+                                if tpl_s:
+                                    try:
+                                        file_path = str(tpl_s).format(club=DATA_FILE_PREFIX, club_code=DATA_FILE_PREFIX, filename=SESSIONS_FILE).strip().lstrip("/")
+                                    except Exception:
+                                        file_path = ""
+                                if (not file_path) and base_dir:
+                                    file_path = f"{base_dir}/{SESSIONS_FILE}"
+                                if (not file_path) and (DATA_FILE_PREFIX == _sanitize_club_code(DEFAULT_CLUB_CODE).upper()):
+                                    file_path = str(st.secrets.get("GITHUB_FILE_PATH", SESSIONS_FILE)).strip().lstrip("/")
+                                if not file_path:
+                                    file_path = SESSIONS_FILE
                     
                             if not repo or not token or not file_path:
                                 st.error("GitHub secrets 설정이 비어있어. (GITHUB_REPO / GITHUB_TOKEN / GITHUB_FILE_PATH 확인)")
