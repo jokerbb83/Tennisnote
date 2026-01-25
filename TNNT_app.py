@@ -3676,11 +3676,28 @@ st.markdown(MOBILE_CSS, unsafe_allow_html=True)
 # ---------------------------------------------------------
 _active_club_code = ensure_login_and_club()
 
+# ✅ 클럽 변경 시(또는 첫 진입 시) roster/sessions를 반드시 해당 클럽 기준으로 다시 로드
+if st.session_state.get("_loaded_club_code") != _active_club_code:
+    st.session_state["_loaded_club_code"] = _active_club_code
+    st.session_state.roster = load_players()
+    st.session_state.sessions = load_sessions()
+
+    # 클럽이 바뀌면 섞이면 안 되는 임시 상태도 같이 초기화
+    for _k in [
+        "current_order",
+        "shuffle_count",
+        "_manual_prefill",
+        "_manual_prefill_used",
+        "_manual_pending",
+    ]:
+        if _k in st.session_state:
+            del st.session_state[_k]
+
+# (안전) 키가 없으면 기본값 세팅
 if "roster" not in st.session_state:
     st.session_state.roster = load_players()
 if "sessions" not in st.session_state:
     st.session_state.sessions = load_sessions()
-
 if "current_order" not in st.session_state:
     st.session_state.current_order = []
 if "shuffle_count" not in st.session_state:
@@ -10654,6 +10671,12 @@ with tab6:
             "_sessions_cache",
             "_players_cache_ts",
             "_sessions_cache_ts",
+            # 클럽 변경 시, 이미 로드된 roster/sessions가 남아있으면 다른 클럽 데이터가 안 보임
+            "roster",
+            "sessions",
+            "current_order",
+            "shuffle_count",
+            "_loaded_club_code",
         ]:
             if k in st.session_state:
                 del st.session_state[k]
@@ -10661,10 +10684,3 @@ with tab6:
         st.success("클럽코드가 적용되었습니다.")
         safe_rerun()
 
-    st.markdown("---")
-    st.markdown("### 📚 TNNT_clubs.json (클럽 레지스트리)")
-    st.caption("레포의 TNNT_clubs.json에 클럽코드별 클럽명을 저장해두면 자동으로 불러옵니다.")
-    try:
-        st.json(reg)
-    except Exception:
-        st.write(reg)
