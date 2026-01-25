@@ -349,7 +349,7 @@ def ensure_login_and_club():
                 line-height:1.6;
             ">
               <b>클럽코드</b>를 먼저 입력해 주세요.<br/>
-              입력하면 해당 클럽의 <b>players/sessions</b> 파일을 자동으로 불러옵니다.
+              입력하면 해당 클럽의 <b>선수들과 경기들의</b> 기록을 자동으로 불러옵니다.
             </div>
             """,
             unsafe_allow_html=True,
@@ -357,12 +357,8 @@ def ensure_login_and_club():
 
         st.markdown("#### 클럽코드 입력")
         _in = st.text_input("클럽코드", value="", placeholder="예: MSPC, HMMC", key="first_club_code_input")
-        c1, c2 = st.columns([1, 1])
-        with c1:
-            apply = st.button("시작하기", use_container_width=True)
-        with c2:
-            if available:
-                st.caption(f"가능한 코드: {available}")
+
+        st.button("시작하기", use_container_width=True)
 
         if apply:
             code_in = _sanitize_club_code(_in).upper()
@@ -10712,7 +10708,7 @@ with tab6:
     with c1:
         apply_club = st.button("클럽코드 적용", use_container_width=True)
     with c2:
-        st.caption("적용하면 해당 클럽의 players/sessions 파일을 다시 불러옵니다.")
+        st.caption("적용하면 해당 클럽의 선수들과 경기들 기록을 다시 불러옵니다.")
 
     if apply_club:
         code_in = _sanitize_club_code(new_code).upper()
