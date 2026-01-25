@@ -36,8 +36,8 @@ from PIL import Image
 # =========================================================
 
 # 기본(폴백) 클럽
-DEFAULT_CLUB_CODE = os.getenv("MSC_DEFAULT_CLUB_CODE", "MSC").strip()
-DEFAULT_CLUB_NAME = os.getenv("MSC_DEFAULT_CLUB_NAME", "마리아상암포바").strip()
+DEFAULT_CLUB_CODE = os.getenv("TNNT_DEFAULT_CLUB_CODE", "").strip()
+DEFAULT_CLUB_NAME = os.getenv("TNNT_DEFAULT_CLUB_NAME", "테스노트").strip()
 
 # ✅ 관리자(메인) 앱 타이틀(표시용)
 ADMIN_PURPOSE = "관리 도우미(Beta)"  # 예: "도우미 (Beta)"
@@ -59,28 +59,66 @@ IS_SCOREBOARD = APP_MODE in ("scb", "scoreboard")
 def _sanitize_club_code(code: str) -> str:
     code = (code or "").strip()
     if not code:
-        return DEFAULT_CLUB_CODE
+        return ""
     # 영문/숫자/언더스코어/대시만 허용
     code = re.sub(r"[^A-Za-z0-9_-]+", "", code)
     return (code[:32] or DEFAULT_CLUB_CODE).strip()
 
 
 def _load_club_registry() -> dict:
-    """st.secrets["CLUB_REGISTRY"] 지원 (toml dict 또는 JSON string 모두 허용)
-    예)
-      [CLUB_REGISTRY.MSC]
-      name="마리아상암포바"
+    """클럽 코드 → 클럽 메타(이름 등) 레지스트리를 로드한다.
+
+    우선순위:
+      1) 레포 파일: TNNT_clubs.json (권장)
+      2) st.secrets["CLUB_REGISTRY"] (레거시/옵션)
+      3) 코드 하드코딩 기본값(HMMC/MSPC)
+    기대 포맷(권장):
+      {
+        "HMMC": {"name": "한미모스"},
+        "MSPC": {"name": "마리아상암포바"}
+      }
     """
+    reg: dict = {}
+
+    # 1) repo local file: TNNT_clubs.json
     try:
-        reg = st.secrets.get("CLUB_REGISTRY", {})
+        local_path = os.getenv("TNNT_CLUBS_FILE", "TNNT_clubs.json")
+        if os.path.exists(local_path):
+            with open(local_path, "r", encoding="utf-8") as f:
+                tmp = json.load(f)
+                if isinstance(tmp, dict):
+                    reg.update(tmp)
     except Exception:
-        reg = {}
-    if isinstance(reg, str):
+        pass
+
+    # 2) optional secrets
+    try:
+        sec = st.secrets.get("CLUB_REGISTRY", {})
+    except Exception:
+        sec = {}
+    if isinstance(sec, str):
         try:
-            reg = json.loads(reg)
+            sec = json.loads(sec)
         except Exception:
-            reg = {}
-    return reg if isinstance(reg, dict) else {}
+            sec = {}
+    if isinstance(sec, dict):
+        reg.update(sec)
+
+    # 3) defaults (fallback)
+    if not reg:
+        reg = {
+            "HMMC": {"name": "한미모스"},
+            "MSPC": {"name": "마리아상암포바"},
+        }
+
+    # 키 정규화(대문자)
+    out = {}
+    for k, v in (reg or {}).items():
+        kk = _sanitize_club_code(str(k)).upper()
+        if not kk:
+            continue
+        out[kk] = v if isinstance(v, dict) else {"name": str(v)}
+    return out
 
 
 def get_club_name(club_code: str) -> str:
@@ -170,35 +208,35 @@ def _get_admin_emails_for_club(club_code: str) -> set:
 
 
 def ensure_login_and_club():
-    """로그인 + 클럽코드가 준비될 때까지 UI를 띄우고, 준비되면 계속 진행한다."""
+    """로그인 + 클럽코드가 준비될 때까지 UI를 띄우고, 준비되면 계속 진행한다.
+
+    - 처음 실행: 메인 화면에서 클럽코드 입력 → 저장(세션) + URL 파라미터(?club=CODE) 세팅
+    - 이후: 따로 바꾸지 않는 이상 같은 클럽으로 자동 진입(같은 URL/세션)
+    """
     # 1) 이메일 확보 (가능하면 구글 로그인/Streamlit 인증)
     auto_email = _get_user_email_from_streamlit()
     if auto_email and not st.session_state.get("user_email"):
         st.session_state["user_email"] = auto_email
         st.rerun()
 
-    # 2) 클럽코드(세션) 초기값
+    # 2) club_code 세션 초기값: URL ?club=CODE 우선
     if "club_code" not in st.session_state:
-        # URL 쿼리 파라미터 club=... 지원(옵션)
         try:
             q = st.query_params if hasattr(st, "query_params") else st.experimental_get_query_params()
             qclub = q.get("club")
             if isinstance(qclub, (list, tuple)):
                 qclub = qclub[0] if qclub else None
+            st.session_state["club_code"] = _sanitize_club_code(str(qclub)).upper() if qclub else ""
             if qclub:
-                st.session_state["club_code"] = _sanitize_club_code(str(qclub))
-            else:
-                st.session_state["club_code"] = ""
-            # 쿼리로 클럽코드가 들어온 경우, 글로벌 상수 재계산을 위해 1회 rerun
-            if qclub:
-                st.rerun()
+                st.rerun()  # 전역 상수 재계산용 1회
         except Exception:
             st.session_state["club_code"] = ""
 
-    # --- Sidebar UI
-    with st.sidebar:
-        st.markdown("### 🔐 로그인 / 클럽 선택")
+    active_code = _sanitize_club_code(st.session_state.get("club_code", "")).upper()
 
+    # 3) Sidebar: 로그인/현재 클럽 표시(클럽 변경은 '설정' 탭에서)
+    with st.sidebar:
+        st.markdown("### 🔐 로그인")
         email = (st.session_state.get("user_email") or "").strip()
         if email:
             st.caption(f"로그인: **{email}**")
@@ -214,48 +252,17 @@ def ensure_login_and_club():
                 st.rerun()
 
         st.markdown("---")
-
-        cur = (st.session_state.get("club_code") or "").strip()
-        club_in = st.text_input("클럽코드", value=cur, placeholder="예: MSC", key="club_code_input")
-        if st.button("클럽코드 적용", use_container_width=True):
-            new_code = _sanitize_club_code(club_in).upper()
-            # 클럽이 바뀌면 데이터 캐시(로스터/세션) 비우기
-            if st.session_state.get("club_code") != new_code:
-                st.session_state["club_code"] = new_code
-                for k in ("roster", "sessions"):
-                    if k in st.session_state:
-                        del st.session_state[k]
-            else:
-                st.session_state["club_code"] = new_code
-            st.rerun()
-
-        # 편의 버튼
-        cols = st.columns(2)
-        with cols[0]:
-            if st.button("로그아웃", use_container_width=True):
-                for k in ("user_email", "club_code", "roster", "sessions"):
-                    if k in st.session_state:
-                        del st.session_state[k]
-                st.rerun()
-        with cols[1]:
-            if st.button("기본 클럽", use_container_width=True):
-                st.session_state["club_code"] = _sanitize_club_code(DEFAULT_CLUB_CODE).upper()
-                for k in ("roster", "sessions"):
-                    if k in st.session_state:
-                        del st.session_state[k]
-                st.rerun()
-
-        # 현재 클럽 표시
-        active_code = _sanitize_club_code(st.session_state.get("club_code", "")).upper()
         if active_code:
-            st.success(f"현재 클럽: **{get_club_name(active_code)}**\n코드: `{active_code}`")
+            st.caption(f"현재 클럽: **{get_club_name(active_code)}** (`{active_code}`)")
+            st.caption("클럽 변경은 마지막 탭 **설정**에서 할 수 있어요.")
         else:
-            st.warning("클럽코드를 입력해 주세요.")
+            st.caption("클럽 미선택")
 
-    # 메인 영역 안내(클럽코드 없으면 진행 중단)
-    active_code = _sanitize_club_code(st.session_state.get("club_code", "")).upper()
+    # 4) 클럽코드가 없으면: 메인에서 먼저 입력 받기
     if not active_code:
-        st.markdown("<div style='height:1.2rem;'></div>", unsafe_allow_html=True)
+        reg = _load_club_registry()
+        available = ", ".join(sorted(reg.keys())) if reg else ""
+        st.markdown("<div style='height:0.6rem;'></div>", unsafe_allow_html=True)
         st.markdown(
             """
             <div style="
@@ -263,19 +270,60 @@ def ensure_login_and_club():
                 border-radius:14px;
                 border:1px solid #e5e7eb;
                 background:#f9fafb;
-                font-size:0.95rem;
+                font-size:0.98rem;
                 line-height:1.6;
             ">
-              <b>클럽코드</b>를 입력하면 해당 클럽의 기록을 불러옵니다.<br/>
-              왼쪽 사이드바에서 <b>클럽코드</b>를 입력 후 <b>적용</b>을 눌러 주세요.
+              <b>클럽코드</b>를 먼저 입력해 주세요.<br/>
+              입력하면 해당 클럽의 <b>players/sessions</b> 파일을 자동으로 불러옵니다.
             </div>
             """,
             unsafe_allow_html=True,
         )
+
+        st.markdown("#### 클럽코드 입력")
+        _in = st.text_input("클럽코드", value="", placeholder="예: MSPC, HMMC", key="first_club_code_input")
+        c1, c2 = st.columns([1, 1])
+        with c1:
+            apply = st.button("시작하기", use_container_width=True)
+        with c2:
+            if available:
+                st.caption(f"가능한 코드: {available}")
+
+        if apply:
+            code_in = _sanitize_club_code(_in).upper()
+            if not code_in:
+                st.warning("클럽코드를 입력해 주세요.")
+                st.stop()
+            if reg and (code_in not in reg):
+                st.warning("등록되지 않은 클럽코드입니다. 다시 확인해 주세요.")
+                st.stop()
+
+            st.session_state["club_code"] = code_in
+            # URL 파라미터에 저장(즐겨찾기/재접속 시 자동 진입)
+            try:
+                if hasattr(st, "query_params"):
+                    st.query_params["club"] = code_in
+                else:
+                    st.experimental_set_query_params(club=code_in)
+            except Exception:
+                pass
+            st.rerun()
+
         st.stop()
+
+    # 5) URL club 파라미터가 비어있으면 현재 active_code로 채워두기(자동 진입용)
+    try:
+        if hasattr(st, "query_params"):
+            if (st.query_params.get("club") or "").upper() != active_code:
+                st.query_params["club"] = active_code
+        else:
+            st.experimental_set_query_params(club=active_code)
+    except Exception:
+        pass
 
     # user_email은 없어도(인증 없는 환경) 통계 보기만 가능하게 허용
     return active_code
+
 
 
 def CLUB_NAME() -> str:
@@ -3913,12 +3961,12 @@ st.markdown(MOBILE_SCORE_ROW_CSS, unsafe_allow_html=True)
 
 
 if IS_OBSERVER:
-    tab3, tab5, tab4 = st.tabs(
-        ["📋 경기 기록 / 통계", "📆 월별 통계", "👤 개인별 통계"]
+    tab3, tab5, tab4, tab6 = st.tabs(
+        ["📋 경기 기록 / 통계", "📆 월별 통계", "👤 개인별 통계", "⚙️ 설정"]
     )
 else:
-    tab3, tab5, tab4, tab1, tab2 = st.tabs(
-        ["📋 경기 기록 / 통계", "📆 월별 통계", "👤 개인별 통계", "🧾 선수 정보 관리", "🎾 오늘 경기 세션"]
+    tab3, tab5, tab4, tab1, tab2, tab6 = st.tabs(
+        ["📋 경기 기록 / 통계", "📆 월별 통계", "👤 개인별 통계", "🧾 선수 정보 관리", "🎾 오늘 경기 세션", "⚙️ 설정"]
     )
 
 
@@ -10546,3 +10594,77 @@ render_footer()
 
 
 
+
+
+# =========================================================
+# [TAB6] 설정
+#   - 클럽코드 변경
+#   - TNNT_clubs.json 레지스트리 표시
+# =========================================================
+with tab6:
+    section_card("설정", "⚙️")
+
+    reg = _load_club_registry()
+
+    cur_code = _sanitize_club_code(st.session_state.get("club_code", "")).upper()
+    cur_name = get_club_name(cur_code) if cur_code else ""
+
+    st.markdown("### 🏷️ 클럽 설정")
+    if cur_code:
+        st.success(f"현재 클럽: **{cur_name}**  (코드: `{cur_code}`)")
+    else:
+        st.warning("현재 선택된 클럽이 없습니다. 클럽코드를 입력해 주세요.")
+
+    # 가능한 코드 안내
+    available_codes = sorted(list(reg.keys())) if isinstance(reg, dict) else []
+    if available_codes:
+        st.caption("가능한 클럽코드: " + ", ".join(available_codes))
+
+    new_code = st.text_input("클럽코드", value=cur_code, placeholder="예: MSPC, HMMC", key="settings_club_code_input")
+
+    c1, c2 = st.columns([1, 2])
+    with c1:
+        apply_club = st.button("클럽코드 적용", use_container_width=True)
+    with c2:
+        st.caption("적용하면 해당 클럽의 players/sessions 파일을 다시 불러옵니다.")
+
+    if apply_club:
+        code_in = _sanitize_club_code(new_code).upper()
+        if not code_in:
+            st.warning("클럽코드를 입력해 주세요.")
+            st.stop()
+        if available_codes and (code_in not in reg):
+            st.warning("등록되지 않은 클럽코드입니다. 다시 확인해 주세요.")
+            st.stop()
+
+        st.session_state["club_code"] = code_in
+
+        # URL 파라미터 동기화(재접속/공유 시 자동 선택)
+        try:
+            if hasattr(st, "query_params"):
+                st.query_params["club"] = code_in
+            else:
+                st.experimental_set_query_params(club=code_in)
+        except Exception:
+            pass
+
+        # 캐시된 데이터/상태 초기화(클럽 변경 시)
+        for k in [
+            "_players_cache",
+            "_sessions_cache",
+            "_players_cache_ts",
+            "_sessions_cache_ts",
+        ]:
+            if k in st.session_state:
+                del st.session_state[k]
+
+        st.success("클럽코드가 적용되었습니다.")
+        safe_rerun()
+
+    st.markdown("---")
+    st.markdown("### 📚 TNNT_clubs.json (클럽 레지스트리)")
+    st.caption("레포의 TNNT_clubs.json에 클럽코드별 클럽명을 저장해두면 자동으로 불러옵니다.")
+    try:
+        st.json(reg)
+    except Exception:
+        st.write(reg)
