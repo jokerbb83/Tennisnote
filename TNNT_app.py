@@ -121,6 +121,22 @@ def _load_club_registry() -> dict:
     return out
 
 
+def _github_auth_header(token: str | None) -> str | None:
+    """GitHub Authorization 헤더 값을 만든다.
+
+    Streamlit secrets에서 제공되는 `github_pat_...` 형태는 보통 fine-grained PAT이므로
+    `Bearer` 스킴을 사용하고, 그 외는 `token` 스킴을 사용한다.
+    """
+    if not token:
+        return None
+    t = str(token).strip()
+    if not t:
+        return None
+    if t.startswith("github_pat_"):
+        return f"Bearer {t}"
+    return f"token {t}"
+
+
 def get_club_name(club_code: str) -> str:
     club_code = _sanitize_club_code(club_code)
     reg = _load_club_registry()
@@ -328,14 +344,14 @@ def ensure_login_and_club():
         st.markdown("---")
         if active_code:
             st.caption(f"현재 클럽: **{get_club_name(active_code)}** (`{active_code}`)")
-            st.caption("클럽 변경은 마지막 탭 **설정**에서 할 수 있어요.")
+            if not IS_SCOREBOARD:
+                st.caption("클럽 변경은 마지막 탭 **설정**에서 할 수 있어요.")
         else:
             st.caption("클럽 미선택")
 
     # 6) 클럽코드가 없으면: 메인에서 먼저 입력 받기
     if not active_code:
         reg = _load_club_registry()
-        available = ", ".join(sorted(reg.keys())) if reg else ""
 
         st.markdown("<div style='height:0.6rem;'></div>", unsafe_allow_html=True)
         st.markdown(
@@ -349,7 +365,7 @@ def ensure_login_and_club():
                 line-height:1.6;
             ">
               <b>클럽코드</b>를 먼저 입력해 주세요.<br/>
-              입력하면 해당 클럽의 <b>선수들과 경기들의</b> 기록을 자동으로 불러옵니다.
+              입력하면 해당 클럽의 <b>players/sessions</b> 파일을 자동으로 불러옵니다.
             </div>
             """,
             unsafe_allow_html=True,
@@ -361,8 +377,7 @@ def ensure_login_and_club():
         with c1:
             apply = st.button("시작하기", use_container_width=True)
         with c2:
-            if available:
-                st.caption(f"가능한 코드: {available}")
+            st.caption("")
 
         if apply:
             code_in = _sanitize_club_code(_in).upper()
@@ -445,9 +460,9 @@ def render_footer():
 
 
 # =========================================================
-# GitHub JSON 업서트 저장 유틸 (MSC_sessions.json) (MSC_sessions.json)
-# - Streamlit Secrets에 아래가 있어야 함:
-#   GITHUB_TOKEN, GITHUB_REPO, GITHUB_BRANCH, GITHUB_FILE_PATH
+# GitHub JSON 업서트 저장 유틸
+# - Streamlit Secrets(최소): GITHUB_TOKEN, GITHUB_REPO, GITHUB_BRANCH
+# - 파일 경로는 멀티클럽 규칙에 따라 `_resolve_github_path()`로 자동 결정
 # =========================================================
 
 def github_upsert_json_file(
@@ -483,9 +498,12 @@ def github_upsert_json_file(
 
     api = f"https://api.github.com/repos/{repo}/contents/{file_path}"
     headers = {
-        "Authorization": f"token {token}",
         "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
     }
+    auth = _github_auth_header(token)
+    if auth:
+        headers["Authorization"] = auth
 
     # 1) 기존 파일 sha 가져오기 (업데이트하려면 sha 필요)
     sha = None
@@ -513,6 +531,13 @@ def github_upsert_json_file(
     # 3) PUT (커밋)
     r2 = requests.put(api, headers=headers, json=payload, timeout=20)
     if r2.status_code not in (200, 201):
+        # 403은 토큰 권한/레포 접근 문제로 자주 발생 (fine-grained PAT 권한 포함)
+        if r2.status_code == 403:
+            raise RuntimeError(
+                "GitHub PUT 실패(403). 토큰이 레포에 대한 쓰기 권한이 없을 가능성이 큽니다. "
+                "(Fine-grained PAT이면: Repository access에 Tennisnote 포함 + Contents: Read and write)\n"
+                f"원문: {r2.text}"
+            )
         raise RuntimeError(f"GitHub PUT 실패: {r2.status_code} / {r2.text}")
 
     return r2.json()
@@ -1438,9 +1463,13 @@ def _github_read_json(repo: str, branch: str, file_path: str, token: str | None)
 
     file_path = str(file_path).lstrip("/")
     api = f"https://api.github.com/repos/{repo}/contents/{file_path}"
-    headers = {"Accept": "application/vnd.github+json"}
-    if token:
-        headers["Authorization"] = f"token {token}"
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+    auth = _github_auth_header(token)
+    if auth:
+        headers["Authorization"] = auth
 
     try:
         r = requests.get(api, headers=headers, params={"ref": branch}, timeout=20)
@@ -1687,10 +1716,9 @@ def save_sessions(sessions):
     repo = str(st.secrets.get("GITHUB_REPO", "")).strip()
     branch = str(st.secrets.get("GITHUB_BRANCH", "main")).strip()
     token = st.secrets.get("GITHUB_TOKEN", "") or None
-    file_path = str(
-        st.secrets.get("GITHUB_SESSIONS_FILE_PATH",
-                       st.secrets.get("GITHUB_FILE_PATH", SESSIONS_FILE))
-    ).strip().lstrip("/")
+    # ✅ 멀티클럽 경로: 기본은 .sessions/{CLUB}_sessions.json
+    # secrets에 경로를 따로 안 넣어도 현재 클럽 기준으로 자동 결정
+    file_path = _resolve_github_path(SESSIONS_FILE)
 
     # token이 없으면 private repo 저장은 불가. (public read는 가능)
     if repo and token and file_path:
@@ -10701,55 +10729,65 @@ with tab6:
     else:
         st.warning("현재 선택된 클럽이 없습니다. 클럽코드를 입력해 주세요.")
 
-    # 가능한 코드 안내
-    available_codes = sorted(list(reg.keys())) if isinstance(reg, dict) else []
-    if available_codes:
-        st.caption("가능한 클럽코드: " + ", ".join(available_codes))
 
-    new_code = st.text_input("클럽코드", value=cur_code, placeholder="예: MSPC, HMMC", key="settings_club_code_input")
+    # ✅ 스코어보드는 완전 읽기 전용 느낌: 클럽 변경 UI 숨김
+    if IS_SCOREBOARD:
+        st.info("스코어보드(읽기 전용)에서는 클럽 변경이 비활성화되어 있습니다.")
+    else:
+        new_code = st.text_input("클럽코드", value=cur_code, placeholder="예: MSPC, HMMC", key="settings_club_code_input")
 
-    c1, c2 = st.columns([1, 2])
-    with c1:
-        apply_club = st.button("클럽코드 적용", use_container_width=True)
-    with c2:
-        st.caption("적용하면 해당 클럽의 선수들과 경기들 기록을 다시 불러옵니다.")
+        c1, c2 = st.columns([1, 2])
+        with c1:
+            apply_club = st.button("클럽코드 적용", use_container_width=True)
+        with c2:
+            st.caption("적용하면 해당 클럽의 players/sessions 파일을 다시 불러옵니다.")
 
-    if apply_club:
-        code_in = _sanitize_club_code(new_code).upper()
-        if not code_in:
-            st.warning("클럽코드를 입력해 주세요.")
-            st.stop()
-        if available_codes and (code_in not in reg):
-            st.warning("등록되지 않은 클럽코드입니다. 다시 확인해 주세요.")
-            st.stop()
+        if apply_club:
+            code_in = _sanitize_club_code(new_code).upper()
+            if not code_in:
+                st.warning("클럽코드를 입력해 주세요.")
+                st.stop()
+            if reg and (code_in not in reg):
+                st.warning("등록되지 않은 클럽코드입니다. 다시 확인해 주세요.")
+                st.stop()
 
-        st.session_state["club_code"] = code_in
+            st.session_state["club_code"] = code_in
 
-        # URL 파라미터 동기화(재접속/공유 시 자동 선택)
-        try:
-            if hasattr(st, "query_params"):
-                st.query_params["club"] = code_in
-            else:
-                st.experimental_set_query_params(club=code_in)
-        except Exception:
-            pass
+            # URL 파라미터 동기화(재접속/공유 시 자동 선택)
+            _set_query_params_safely(**{CLUB_QP_KEY: code_in})
 
-        # 캐시된 데이터/상태 초기화(클럽 변경 시)
-        for k in [
-            "_players_cache",
-            "_sessions_cache",
-            "_players_cache_ts",
-            "_sessions_cache_ts",
-            # 클럽 변경 시, 이미 로드된 roster/sessions가 남아있으면 다른 클럽 데이터가 안 보임
-            "roster",
-            "sessions",
-            "current_order",
-            "shuffle_count",
-            "_loaded_club_code",
-        ]:
-            if k in st.session_state:
-                del st.session_state[k]
+            # 캐시된 데이터/상태 초기화(클럽 변경 시)
+            for k in [
+                "_players_cache",
+                "_sessions_cache",
+                "_players_cache_ts",
+                "_sessions_cache_ts",
+                # 클럽 변경 시, 이미 로드된 roster/sessions가 남아있으면 다른 클럽 데이터가 안 보임
+                "roster",
+                "sessions",
+                "current_order",
+                "shuffle_count",
+                "_loaded_club_code",
+            ]:
+                if k in st.session_state:
+                    del st.session_state[k]
 
-        st.success("클럽코드가 적용되었습니다.")
-        safe_rerun()
+            st.success("클럽코드가 적용되었습니다.")
+            safe_rerun()
+
+    # ✅ 관리자용: 스코어보드 링크(클럽코드 자동 포함)
+    if (not IS_SCOREBOARD) and (not IS_OBSERVER) and cur_code:
+        st.markdown("---")
+        st.markdown("### 📣 스코어보드 링크")
+        sb_base = str(st.secrets.get("SCOREBOARD_URL", "") or os.getenv("TNNT_SCOREBOARD_URL", "")).strip()
+        qs = f"club={cur_code}"
+        if sb_base:
+            url = sb_base
+            joiner = "&" if ("?" in url) else "?"
+            url = f"{url}{joiner}{qs}"
+            st.link_button("📣 스코어보드 열기", url, use_container_width=True)
+            st.caption("링크를 공유하면 클럽코드 입력 없이 바로 해당 클럽 스코어보드로 진입합니다.")
+        else:
+            st.info("스코어보드 앱 URL을 secrets에 `SCOREBOARD_URL`로 넣어주면 버튼이 자동으로 활성화됩니다.")
+            st.code(f"?{qs}")
 
