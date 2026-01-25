@@ -357,8 +357,12 @@ def ensure_login_and_club():
 
         st.markdown("#### 클럽코드 입력")
         _in = st.text_input("클럽코드", value="", placeholder="예: MSPC, HMMC", key="first_club_code_input")
-
-        st.button("시작하기", use_container_width=True)
+        c1, c2 = st.columns([1, 1])
+        with c1:
+            apply = st.button("시작하기", use_container_width=True)
+        with c2:
+            if available:
+                st.caption(f"가능한 코드: {available}")
 
         if apply:
             code_in = _sanitize_club_code(_in).upper()
