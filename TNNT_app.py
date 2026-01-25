@@ -1339,6 +1339,84 @@ def _github_read_json(repo: str, branch: str, file_path: str, token: str | None)
         return (False, None)
 
 
+def _resolve_github_path(local_path: str) -> str:
+    """멀티클럽에서 GitHub 파일 경로를 일관되게 만든다.
+
+    우선순위:
+      1) (선택) 템플릿: GITHUB_*_PATH_TEMPLATE / GITHUB_FILE_PATH_TEMPLATE
+      2) (선택) 타입별 디렉토리: GITHUB_PLAYERS_DIR / GITHUB_SESSIONS_DIR  (기본: .players / .sessions)
+      3) (선택) 공용 베이스 디렉토리: GITHUB_DATA_DIR  (레거시 호환)
+      4) 그냥 파일명
+    """
+    local_path = str(local_path).strip().lstrip("/")
+
+    # 현재 클럽코드(세션에 없으면 기본값)
+    club = _sanitize_club_code(st.session_state.get("club_code", DEFAULT_CLUB_CODE)).upper()
+
+    # 어떤 파일을 읽는지 판단
+    is_sessions = (local_path == SESSIONS_FILE) or local_path.endswith("_sessions.json")
+    is_players = (local_path == PLAYERS_FILE) or local_path.endswith("_players.json")
+
+    # 레거시/템플릿
+    base_dir = str(st.secrets.get("GITHUB_DATA_DIR", "") or "").strip().strip("/")
+
+    if is_sessions:
+        tpl = st.secrets.get("GITHUB_FILE_PATH_TEMPLATE", None) or st.secrets.get("GITHUB_SESSIONS_PATH_TEMPLATE", None)
+        legacy = st.secrets.get("GITHUB_FILE_PATH", None) or st.secrets.get("GITHUB_SESSIONS_FILE_PATH", None)
+        typed_dir = str(st.secrets.get("GITHUB_SESSIONS_DIR", ".sessions") or "").strip().strip("/")
+    elif is_players:
+        tpl = st.secrets.get("GITHUB_PLAYERS_FILE_PATH_TEMPLATE", None) or st.secrets.get("GITHUB_PLAYERS_PATH_TEMPLATE", None)
+        legacy = st.secrets.get("GITHUB_PLAYERS_FILE_PATH", None)
+        typed_dir = str(st.secrets.get("GITHUB_PLAYERS_DIR", ".players") or "").strip().strip("/")
+    else:
+        tpl, legacy, typed_dir = None, None, ""
+
+    # 1) 템플릿 우선
+    if tpl:
+        try:
+            return str(tpl).format(club=club, club_code=club, filename=local_path).strip().lstrip("/")
+        except Exception:
+            pass
+
+    # 2) 레거시 단일 파일 경로는 기본 클럽에서만 적용(멀티클럽 섞임 방지)
+    if legacy and (club == _sanitize_club_code(DEFAULT_CLUB_CODE).upper()):
+        return str(legacy).strip().lstrip("/")
+
+    # 3) 타입별 디렉토리(.players/.sessions) 우선
+    if typed_dir:
+        return f"{typed_dir}/{local_path}".lstrip("/")
+
+    # 4) base dir가 있으면 data/xxx.json 형태
+    if base_dir:
+        return f"{base_dir}/{local_path}".lstrip("/")
+
+    return local_path
+
+
+def _resolve_local_path(local_path: str) -> str:
+    """레포에 `.players/`, `.sessions/` 폴더로 저장된 구조도 로컬에서 바로 읽을 수 있게 함."""
+    p = str(local_path).strip().lstrip("/")
+
+    # 그대로 존재하면 우선 사용
+    if os.path.exists(p):
+        return p
+
+    is_sessions = (p == SESSIONS_FILE) or p.endswith("_sessions.json")
+    is_players = (p == PLAYERS_FILE) or p.endswith("_players.json")
+
+    # 기본 폴더(.players/.sessions)에서 찾기
+    if is_sessions:
+        alt = os.path.join(".sessions", p)
+        if os.path.exists(alt):
+            return alt
+    if is_players:
+        alt = os.path.join(".players", p)
+        if os.path.exists(alt):
+            return alt
+
+    return p
+
+
 def load_json(path, default):
     """
     ✅ admin 모드: 로컬 우선 → (없으면) GitHub fallback
@@ -1351,79 +1429,46 @@ def load_json(path, default):
     token = st.secrets.get("GITHUB_TOKEN", "")
     token = token if token else None
 
-# ---------------------------------------------------------
-# 파일별 GitHub 경로(멀티클럽 지원)
-#  - 권장: secrets에 GITHUB_DATA_DIR="data" 같이 베이스 디렉토리만 두고
-#          각 클럽은 data/{club}_sessions.json 형태로 자동 구성
-#
-#  - (옵션) 템플릿 지원:
-#      GITHUB_FILE_PATH_TEMPLATE = "data/{club}_sessions.json"
-#      GITHUB_PLAYERS_FILE_PATH_TEMPLATE = "data/{club}_players.json"
-#
-#  - (레거시) 단일 파일 경로:
-#      GITHUB_FILE_PATH / GITHUB_PLAYERS_FILE_PATH
-#      (기본 클럽(DEFAULT_CLUB_CODE)에서만 적용)
-# ---------------------------------------------------------
-def _resolve_github_path(local_path: str) -> str:
-    local_path = str(local_path).strip().lstrip("/")
-    base_dir = str(st.secrets.get("GITHUB_DATA_DIR", "") or "").strip().strip("/")
-    club = DATA_FILE_PREFIX
-
-    if local_path == SESSIONS_FILE:
-        tpl = st.secrets.get("GITHUB_FILE_PATH_TEMPLATE", None) or st.secrets.get("GITHUB_SESSIONS_PATH_TEMPLATE", None)
-        legacy = st.secrets.get("GITHUB_FILE_PATH", None)
-    elif local_path == PLAYERS_FILE:
-        tpl = st.secrets.get("GITHUB_PLAYERS_FILE_PATH_TEMPLATE", None) or st.secrets.get("GITHUB_PLAYERS_PATH_TEMPLATE", None)
-        legacy = st.secrets.get("GITHUB_PLAYERS_FILE_PATH", None)
-    else:
-        tpl = None
-        legacy = None
-
-    if tpl:
-        try:
-            return str(tpl).format(club=club, club_code=club, filename=local_path).strip().lstrip("/")
-        except Exception:
-            pass
-
-    # 레거시 단일 경로는 기본 클럽에서만 적용(멀티클럽에서 섞이는 것 방지)
-    if legacy and (club == _sanitize_club_code(DEFAULT_CLUB_CODE).upper()):
-        return str(legacy).strip().lstrip("/")
-
-    if base_dir:
-        return f"{base_dir}/{local_path}"
-
-    return local_path
-
     gh_path = _resolve_github_path(path)
 
     # 1) GitHub 우선(옵저버)
-    if prefer_github:
+    if prefer_github and repo and gh_path:
         ok, data = _github_read_json(repo, branch, gh_path, token)
         if ok and data is not None:
             return data
 
-    # 2) 로컬 로드
-    if os.path.exists(path):
+    # 2) 로컬 로드 (레포 내 .players/.sessions 구조도 지원)
+    local_path = _resolve_local_path(path)
+    if os.path.exists(local_path):
         try:
-            with open(path, "r", encoding="utf-8") as f:
+            with open(local_path, "r", encoding="utf-8") as f:
                 return json.load(f)
         except Exception:
             pass
 
     # 3) GitHub fallback(관리자/로컬이 없을 때)
-    if not prefer_github:
+    if (not prefer_github) and repo and gh_path:
         ok, data = _github_read_json(repo, branch, gh_path, token)
         if ok and data is not None:
             return data
 
     return default
 
-
 def save_json(path, data):
     # ✅ 스코어보드/옵저버(읽기전용)에서는 어떤 경우에도 파일 쓰기 금지
     if READ_ONLY:
         return False
-    with open(path, "w", encoding="utf-8") as f:
+
+    # 레포 구조(.players/.sessions)도 동일하게 저장되도록 경로 보정
+    local_path = _resolve_local_path(path)
+    dir_name = os.path.dirname(local_path)
+    if dir_name and (not os.path.exists(dir_name)):
+        try:
+            os.makedirs(dir_name, exist_ok=True)
+        except Exception:
+            pass
+
+    with open(local_path, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
     return True
 
@@ -1435,8 +1480,50 @@ def _stable_md5(obj) -> str:
 
 
 
+
+def normalize_players(roster_raw):
+    """players.json 포맷이 버전마다 달라도 앱이 안 죽도록 표준화한다."""
+    if roster_raw is None:
+        return []
+
+    # dict 포맷 처리
+    if isinstance(roster_raw, dict):
+        if isinstance(roster_raw.get("players"), list):
+            roster_raw = roster_raw.get("players")
+        else:
+            vals = list(roster_raw.values())
+            if vals and all(isinstance(v, dict) for v in vals):
+                roster_raw = vals
+            else:
+                roster_raw = []
+
+    if not isinstance(roster_raw, list):
+        return []
+
+    out = []
+    for p in roster_raw:
+        if isinstance(p, str):
+            name = p.strip()
+            if name:
+                out.append({"name": name})
+            continue
+        if isinstance(p, dict):
+            name = str(p.get("name", "")).strip()
+            if not name:
+                for k in ("이름", "Name", "player", "선수"):
+                    if k in p and str(p.get(k, "")).strip():
+                        name = str(p.get(k)).strip()
+                        break
+            if not name:
+                continue
+            q = dict(p)
+            q["name"] = name
+            out.append(q)
+            continue
+    return out
+
 def load_players():
-    return load_json(PLAYERS_FILE, [])
+    return normalize_players(load_json(PLAYERS_FILE, []))
 
 
 def save_players(players):
@@ -3770,7 +3857,7 @@ if "min_games_guard" not in st.session_state:
 
 roster = st.session_state.roster
 sessions = st.session_state.sessions
-roster_by_name = {p["name"]: p for p in roster}
+roster_by_name = {p.get("name"): p for p in roster if isinstance(p, dict) and p.get("name")}
 
 st.title(f"🎾 {APP_TITLE}")
 
@@ -3886,7 +3973,7 @@ def render_tab_player_manage(tab):
                 keep_cols = [c for c in keep_cols if c in df_disp.columns]
                 df_disp = df_disp[keep_cols]
 
-            roster_by_name = {p["name"]: p for p in roster}
+            roster_by_name = {p.get("name"): p for p in roster if isinstance(p, dict) and p.get("name")}
 
             for grp in ["A조", "B조", "미배정"]:
                 col_grp = "실력조" if not mobile_mode else "조"
@@ -4058,21 +4145,7 @@ def render_tab_player_manage(tab):
                 if not isinstance(roster_to_save, list):
                     roster_to_save = roster if isinstance(roster, list) else []
 
-                file_path_players = (st.secrets.get("GITHUB_PLAYERS_FILE_PATH", "") or "").strip().lstrip("/")
-                if not file_path_players:
-                    tpl_p = st.secrets.get("GITHUB_PLAYERS_FILE_PATH_TEMPLATE", None) or st.secrets.get("GITHUB_PLAYERS_PATH_TEMPLATE", None)
-                    base_dir = str(st.secrets.get("GITHUB_DATA_DIR", "") or "").strip().strip("/")
-                    if tpl_p:
-                        try:
-                            file_path_players = str(tpl_p).format(club=DATA_FILE_PREFIX, club_code=DATA_FILE_PREFIX, filename=PLAYERS_FILE).strip().lstrip("/")
-                        except Exception:
-                            file_path_players = ""
-                    if (not file_path_players) and base_dir:
-                        file_path_players = f"{base_dir}/{PLAYERS_FILE}"
-                    if (not file_path_players) and (DATA_FILE_PREFIX == _sanitize_club_code(DEFAULT_CLUB_CODE).upper()):
-                        file_path_players = str(st.secrets.get("GITHUB_PLAYERS_FILE_PATH", PLAYERS_FILE)).strip().lstrip("/")
-                    if not file_path_players:
-                        file_path_players = PLAYERS_FILE
+                file_path_players = _resolve_github_path(PLAYERS_FILE)
                 repo = st.secrets.get("GITHUB_REPO", "")
                 branch = st.secrets.get("GITHUB_BRANCH", "main")
 
@@ -8564,21 +8637,7 @@ with tab3:
                             repo = str(st.secrets.get("GITHUB_REPO", "")).strip()
                             branch = str(st.secrets.get("GITHUB_BRANCH", "main")).strip()
                             token = st.secrets.get("GITHUB_TOKEN", "") or None
-                            file_path = str(st.secrets.get("GITHUB_SESSIONS_FILE_PATH", "") or "").strip().lstrip("/")
-                            if not file_path:
-                                tpl_s = st.secrets.get("GITHUB_FILE_PATH_TEMPLATE", None) or st.secrets.get("GITHUB_SESSIONS_PATH_TEMPLATE", None)
-                                base_dir = str(st.secrets.get("GITHUB_DATA_DIR", "") or "").strip().strip("/")
-                                if tpl_s:
-                                    try:
-                                        file_path = str(tpl_s).format(club=DATA_FILE_PREFIX, club_code=DATA_FILE_PREFIX, filename=SESSIONS_FILE).strip().lstrip("/")
-                                    except Exception:
-                                        file_path = ""
-                                if (not file_path) and base_dir:
-                                    file_path = f"{base_dir}/{SESSIONS_FILE}"
-                                if (not file_path) and (DATA_FILE_PREFIX == _sanitize_club_code(DEFAULT_CLUB_CODE).upper()):
-                                    file_path = str(st.secrets.get("GITHUB_FILE_PATH", SESSIONS_FILE)).strip().lstrip("/")
-                                if not file_path:
-                                    file_path = SESSIONS_FILE
+                            file_path = _resolve_github_path(SESSIONS_FILE)
                     
                             if not repo or not token or not file_path:
                                 st.error("GitHub secrets 설정이 비어있어. (GITHUB_REPO / GITHUB_TOKEN / GITHUB_FILE_PATH 확인)")
@@ -8587,8 +8646,8 @@ with tab3:
                             # ✅ 최신 sessions 확보: (1) 로컬 파일 → (2) session_state로 덮기
                             sessions_local = {}
                             try:
-                                if os.path.exists(SESSIONS_FILE):
-                                    with open(SESSIONS_FILE, "r", encoding="utf-8") as f:
+                                if os.path.exists(_resolve_local_path(SESSIONS_FILE)):
+                                    with open(_resolve_local_path(SESSIONS_FILE), "r", encoding="utf-8") as f:
                                         sessions_local = json.load(f)
                             except Exception:
                                 sessions_local = {}
@@ -10483,7 +10542,6 @@ with tab5:
 # ✅ 모든 탭 공통 푸터
 # =========================================================
 render_footer()
-
 
 
 
