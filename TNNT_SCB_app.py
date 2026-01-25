@@ -1,39 +1,18 @@
 # -*- coding: utf-8 -*-
-"""MSC_SCB_app (스코어보드)
+"""TNNT 스코어보드 엔트리 포인트
 
-- 관리자 앱(공통 로직)이 있는 파일을 그대로 실행하되,
-  MSC_APP_MODE=scoreboard 로 고정해서 3개 탭(경기기록/월별/개인별)만 보이게 합니다.
-- 관리자 앱 파일을 수정하면, 이 스코어보드 앱에도 자동 반영됩니다.
-
-※ 주의: 이 파일에는 Streamlit 호출을 두지 말아야 합니다.
-       (set_page_config 등은 '관리자 앱 파일' 안에서 가장 먼저 실행되도록 유지)
+- 클럽코드 온보딩(최초 1회 입력) + ?club=CODE URL 파라미터 방식은 메인 앱(TNNT_app.py)과 동일
+- 이 파일은 스코어보드 모드로만 실행되도록 환경변수를 세팅한 뒤, 메인 앱을 그대로 실행합니다.
 """
 
 import os
 import runpy
 from pathlib import Path
 
-# ✅ 스코어보드 모드로 고정 (옵저버/읽기전용 UI)
-os.environ["MSC_APP_MODE"] = "scoreboard"
-os.environ["MSC_READ_ONLY"] = "1"  # ✅ 어떤 경우에도 JSON 쓰기 금지
+# 스코어보드 모드 강제
+os.environ["MSC_APP_MODE"] = os.getenv("MSC_APP_MODE", "scoreboard")
 
-HERE = Path(__file__).resolve().parent
+main_script = os.getenv("TNNT_MAIN_SCRIPT", "").strip() or "TNNT_app.py"
+main_path = Path(__file__).with_name(main_script)
 
-# ✅ 연결 대상(관리자 앱) 후보들
-CANDIDATES = [
-
-    "MSC_app.py",        # ✅ 기준(관리자) 앱 파일
-]
-
-target = None
-for name in CANDIDATES:
-    p = HERE / name
-    if p.exists():
-        target = p
-        break
-
-if target is None:
-    raise FileNotFoundError("연결할 관리자 앱 파일을 찾지 못했어. (MSC_app - 복사본 (12).py / MSC_app_admin_linked.py / MSC_app.py / MSC_app - 복사본 (9).py 중 하나가 필요)")
-
-# ✅ 관리자 앱을 그대로 실행 (수정사항 자동 반영)
-runpy.run_path(str(target), run_name="__main__")
+runpy.run_path(str(main_path), run_name="__main__")
