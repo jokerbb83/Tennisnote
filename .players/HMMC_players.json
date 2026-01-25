@@ -1,0 +1,352 @@
+[
+  {
+    "name": "김동현",
+    "gender": "남",
+    "hand": "오른손",
+    "age_group": "30대",
+    "racket": "모름",
+    "group": "B조",
+    "ntrp": 2.0,
+    "mbti": "모름"
+  },
+  {
+    "name": "남승화",
+    "gender": "여",
+    "hand": "오른손",
+    "age_group": "40대",
+    "racket": "모름",
+    "group": "B조",
+    "ntrp": 1.5,
+    "mbti": "모름"
+  },
+  {
+    "name": "남유경",
+    "gender": "여",
+    "hand": "오른손",
+    "age_group": "40대",
+    "racket": "모름",
+    "group": "A조",
+    "ntrp": 2.3,
+    "mbti": "모름"
+  },
+  {
+    "name": "문선오",
+    "gender": "여",
+    "hand": "오른손",
+    "age_group": "40대",
+    "racket": "모름",
+    "group": "B조",
+    "ntrp": 2.0,
+    "mbti": "모름"
+  },
+  {
+    "name": "민솔기",
+    "gender": "여",
+    "hand": "오른손",
+    "age_group": "40대",
+    "racket": "모름",
+    "group": "A조",
+    "ntrp": 2.3,
+    "mbti": "모름"
+  },
+  {
+    "name": "박기혜",
+    "gender": "여",
+    "hand": "오른손",
+    "age_group": "40대",
+    "racket": "모름",
+    "group": "A조",
+    "ntrp": 2.0,
+    "mbti": "모름"
+  },
+  {
+    "name": "박아리",
+    "gender": "여",
+    "hand": "오른손",
+    "age_group": "40대",
+    "racket": "모름",
+    "group": "B조",
+    "ntrp": 2.0,
+    "mbti": "모름"
+  },
+  {
+    "name": "박준수",
+    "gender": "남",
+    "hand": "오른손",
+    "age_group": "40대",
+    "racket": "모름",
+    "group": "B조",
+    "ntrp": 2.0,
+    "mbti": "모름"
+  },
+  {
+    "name": "박진균",
+    "gender": "남",
+    "hand": "오른손",
+    "age_group": "30대",
+    "racket": "모름",
+    "group": "A조",
+    "ntrp": 2.5,
+    "mbti": "모름"
+  },
+  {
+    "name": "배성균",
+    "gender": "남",
+    "hand": "오른손",
+    "age_group": "40대",
+    "racket": "윌슨",
+    "group": "A조",
+    "ntrp": 3.0,
+    "mbti": "ENFP"
+  },
+  {
+    "name": "배효진",
+    "gender": "여",
+    "hand": "오른손",
+    "age_group": "40대",
+    "racket": "모름",
+    "group": "B조",
+    "ntrp": 2.0,
+    "mbti": "모름"
+  },
+  {
+    "name": "성지혜",
+    "gender": "여",
+    "hand": "오른손",
+    "age_group": "40대",
+    "racket": "모름",
+    "group": "A조",
+    "ntrp": 2.2,
+    "mbti": "모름"
+  },
+  {
+    "name": "신영식",
+    "gender": "남",
+    "hand": "오른손",
+    "age_group": "50대",
+    "racket": "모름",
+    "group": "A조",
+    "ntrp": 3.0,
+    "mbti": "모름"
+  },
+  {
+    "name": "양지선",
+    "gender": "여",
+    "hand": "오른손",
+    "age_group": "40대",
+    "racket": "모름",
+    "group": "A조",
+    "ntrp": 2.3,
+    "mbti": "모름"
+  },
+  {
+    "name": "염보배",
+    "gender": "여",
+    "hand": "왼손",
+    "age_group": "40대",
+    "racket": "모름",
+    "group": "B조",
+    "ntrp": 2.0,
+    "mbti": "모름"
+  },
+  {
+    "name": "유명규",
+    "gender": "남",
+    "hand": "오른손",
+    "age_group": "40대",
+    "racket": "모름",
+    "group": "A조",
+    "ntrp": 2.5,
+    "mbti": "모름"
+  },
+  {
+    "name": "유연주",
+    "gender": "여",
+    "hand": "오른손",
+    "age_group": "40대",
+    "racket": "모름",
+    "group": "A조",
+    "ntrp": 2.3,
+    "mbti": "모름"
+  },
+  {
+    "name": "이동은",
+    "gender": "남",
+    "hand": "왼손",
+    "age_group": "40대",
+    "racket": "모름",
+    "group": "A조",
+    "ntrp": 2.8,
+    "mbti": "모름"
+  },
+  {
+    "name": "이상희",
+    "gender": "여",
+    "hand": "오른손",
+    "age_group": "40대",
+    "racket": "모름",
+    "group": "A조",
+    "ntrp": 3.0,
+    "mbti": "모름"
+  },
+  {
+    "name": "이수경",
+    "gender": "여",
+    "hand": "오른손",
+    "age_group": "40대",
+    "racket": "모름",
+    "group": "A조",
+    "ntrp": 2.3,
+    "mbti": "모름"
+  },
+  {
+    "name": "이수영",
+    "gender": "남",
+    "hand": "오른손",
+    "age_group": "40대",
+    "racket": "모름",
+    "group": "A조",
+    "ntrp": 2.3,
+    "mbti": "모름"
+  },
+  {
+    "name": "이수옥",
+    "gender": "여",
+    "hand": "오른손",
+    "age_group": "40대",
+    "racket": "모름",
+    "group": "A조",
+    "ntrp": 2.5,
+    "mbti": "모름"
+  },
+  {
+    "name": "이승준",
+    "gender": "남",
+    "hand": "오른손",
+    "age_group": "40대",
+    "racket": "모름",
+    "group": "A조",
+    "ntrp": 2.5,
+    "mbti": "모름"
+  },
+  {
+    "name": "이영우",
+    "gender": "여",
+    "hand": "오른손",
+    "age_group": "50대",
+    "racket": "모름",
+    "group": "A조",
+    "ntrp": 2.3,
+    "mbti": "모름"
+  },
+  {
+    "name": "이의정",
+    "gender": "여",
+    "hand": "오른손",
+    "age_group": "40대",
+    "racket": "모름",
+    "group": "B조",
+    "ntrp": 1.5,
+    "mbti": "모름"
+  },
+  {
+    "name": "이정은",
+    "gender": "여",
+    "hand": "오른손",
+    "age_group": "40대",
+    "racket": "모름",
+    "group": "B조",
+    "ntrp": 2.0,
+    "mbti": "모름"
+  },
+  {
+    "name": "이현목",
+    "gender": "남",
+    "hand": "오른손",
+    "age_group": "40대",
+    "racket": "모름",
+    "group": "A조",
+    "ntrp": 2.5,
+    "mbti": "모름"
+  },
+  {
+    "name": "장홍선",
+    "gender": "남",
+    "hand": "오른손",
+    "age_group": "30대",
+    "racket": "모름",
+    "group": "B조",
+    "ntrp": 2.0,
+    "mbti": "모름"
+  },
+  {
+    "name": "전희종",
+    "gender": "남",
+    "hand": "오른손",
+    "age_group": "40대",
+    "racket": "모름",
+    "group": "B조",
+    "ntrp": 2.0,
+    "mbti": "모름"
+  },
+  {
+    "name": "정아연",
+    "gender": "여",
+    "hand": "오른손",
+    "age_group": "40대",
+    "racket": "모름",
+    "group": "B조",
+    "ntrp": 2.0,
+    "mbti": "모름"
+  },
+  {
+    "name": "지문희",
+    "gender": "여",
+    "hand": "오른손",
+    "age_group": "40대",
+    "racket": "모름",
+    "group": "A조",
+    "ntrp": 2.5,
+    "mbti": "모름"
+  },
+  {
+    "name": "최승준",
+    "gender": "남",
+    "hand": "오른손",
+    "age_group": "40대",
+    "racket": "모름",
+    "group": "A조",
+    "ntrp": 2.5,
+    "mbti": "모름"
+  },
+  {
+    "name": "최용성",
+    "gender": "남",
+    "hand": "오른손",
+    "age_group": "30대",
+    "racket": "모름",
+    "group": "A조",
+    "ntrp": 2.5,
+    "mbti": "모름"
+  },
+  {
+    "name": "한승현",
+    "gender": "남",
+    "hand": "오른손",
+    "age_group": "50대",
+    "racket": "모름",
+    "group": "A조",
+    "ntrp": 3.0,
+    "mbti": "모름"
+  },
+  {
+    "name": "홍성현",
+    "gender": "남",
+    "hand": "오른손",
+    "age_group": "30대",
+    "racket": "모름",
+    "group": "B조",
+    "ntrp": 2.0,
+    "mbti": "모름"
+  }
+]
