@@ -1,1 +1,8 @@
-dd
+[client]
+toolbarMode = "minimal"
+[theme]
+base="light"
+backgroundColor="#FFFFFF"
+secondaryBackgroundColor="#F6F7FB"
+textColor="#111827"
+primaryColor="#6D28D9"
