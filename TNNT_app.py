@@ -206,35 +206,109 @@ def _get_admin_emails_for_club(club_code: str) -> set:
 
     return set(e.lower() for e in emails)
 
+def _reset_club_caches():
+    """클럽이 바뀌면 캐시된 players/sessions/파생 상태를 비운다."""
+    for k in [
+        "_players_cache",
+        "_sessions_cache",
+        "_players_cache_ts",
+        "_sessions_cache_ts",
+        "_score_cache",
+        "_rank_cache",
+    ]:
+        if k in st.session_state:
+            del st.session_state[k]
+
+
+# ✅ 클럽코드 쿼리 파라미터 키(기본: ?club=MSPC)
+CLUB_QP_KEY = (os.getenv("TNNT_CLUB_QUERY_KEY", "club") or "club").strip()
+
+
+def _get_query_param_value(key: str):
+    """Streamlit 버전 차이를 흡수해서 쿼리 파라미터 값을 하나로 가져온다."""
+    try:
+        qp = st.query_params  # 신버전
+        v = qp.get(key)
+        if isinstance(v, (list, tuple)):
+            return v[0] if v else None
+        return v
+    except Exception:
+        try:
+            qp = st.experimental_get_query_params()
+            v = qp.get(key, [None])
+            return v[0] if isinstance(v, list) else v
+        except Exception:
+            return None
+
+
+def _set_query_params_safely(**kwargs):
+    """기존 쿼리를 최대한 유지하면서 필요한 키만 설정한다."""
+    try:
+        if hasattr(st, "query_params"):
+            for k, v in kwargs.items():
+                if v is None:
+                    try:
+                        st.query_params.pop(k, None)
+                    except Exception:
+                        pass
+                else:
+                    st.query_params[k] = v
+        else:
+            # experimental_set_query_params는 넘겨준 값만 남길 수 있어서,
+            # 가능한 한 기존 값을 보존하려고 읽어온 뒤 merge한다.
+            cur = st.experimental_get_query_params()
+            merged = {}
+            for k, vv in (cur or {}).items():
+                if isinstance(vv, list) and vv:
+                    merged[k] = vv[0]
+                elif isinstance(vv, str):
+                    merged[k] = vv
+            for k, v in kwargs.items():
+                if v is None:
+                    merged.pop(k, None)
+                else:
+                    merged[k] = v
+            st.experimental_set_query_params(**merged)
+    except Exception:
+        pass
 
 def ensure_login_and_club():
     """로그인 + 클럽코드가 준비될 때까지 UI를 띄우고, 준비되면 계속 진행한다.
 
-    - 처음 실행: 메인 화면에서 클럽코드 입력 → 저장(세션) + URL 파라미터(?club=CODE) 세팅
-    - 이후: 따로 바꾸지 않는 이상 같은 클럽으로 자동 진입(같은 URL/세션)
+    요구사항:
+    - 최초 1회 클럽코드 입력 후에는 입력 화면 없이 바로 진입(세션/URL 파라미터 기반)
+    - URL에 ?club=CODE 가 있으면 무조건 그 클럽으로 자동 진입(세션보다 우선)
     """
+
     # 1) 이메일 확보 (가능하면 구글 로그인/Streamlit 인증)
     auto_email = _get_user_email_from_streamlit()
     if auto_email and not st.session_state.get("user_email"):
         st.session_state["user_email"] = auto_email
         st.rerun()
 
-    # 2) club_code 세션 초기값: URL ?club=CODE 우선
+    # 2) URL 파라미터 우선: ?club=CODE
+    qclub_raw = _get_query_param_value(CLUB_QP_KEY)
+    qclub = _sanitize_club_code(str(qclub_raw)).upper() if qclub_raw else ""
+
+    # 3) 세션에 club_code가 없으면 URL로 초기화
     if "club_code" not in st.session_state:
-        try:
-            q = st.query_params if hasattr(st, "query_params") else st.experimental_get_query_params()
-            qclub = q.get("club")
-            if isinstance(qclub, (list, tuple)):
-                qclub = qclub[0] if qclub else None
-            st.session_state["club_code"] = _sanitize_club_code(str(qclub)).upper() if qclub else ""
-            if qclub:
-                st.rerun()  # 전역 상수 재계산용 1회
-        except Exception:
-            st.session_state["club_code"] = ""
+        st.session_state["club_code"] = qclub or ""
+
+        # URL에 club이 있으면 전역 상수(파일명/타이틀) 재계산을 위해 1회 rerun
+        if qclub:
+            _reset_club_caches()
+            st.rerun()
+
+    # 4) URL club이 세션과 다르면 URL을 우선으로 즉시 동기화(입력화면 없이 진입)
+    cur_code = _sanitize_club_code(st.session_state.get("club_code", "")).upper()
+    if qclub and (qclub != cur_code):
+        st.session_state["club_code"] = qclub
+        _reset_club_caches()
+        st.rerun()
 
     active_code = _sanitize_club_code(st.session_state.get("club_code", "")).upper()
 
-    # 3) Sidebar: 로그인/현재 클럽 표시(클럽 변경은 '설정' 탭에서)
+    # 5) Sidebar: 로그인/현재 클럽 표시(클럽 변경은 '설정' 탭에서)
     with st.sidebar:
         st.markdown("### 🔐 로그인")
         email = (st.session_state.get("user_email") or "").strip()
@@ -258,10 +332,11 @@ def ensure_login_and_club():
         else:
             st.caption("클럽 미선택")
 
-    # 4) 클럽코드가 없으면: 메인에서 먼저 입력 받기
+    # 6) 클럽코드가 없으면: 메인에서 먼저 입력 받기
     if not active_code:
         reg = _load_club_registry()
         available = ", ".join(sorted(reg.keys())) if reg else ""
+
         st.markdown("<div style='height:0.6rem;'></div>", unsafe_allow_html=True)
         st.markdown(
             """
@@ -299,25 +374,19 @@ def ensure_login_and_club():
                 st.stop()
 
             st.session_state["club_code"] = code_in
-            # URL 파라미터에 저장(즐겨찾기/재접속 시 자동 진입)
-            try:
-                if hasattr(st, "query_params"):
-                    st.query_params["club"] = code_in
-                else:
-                    st.experimental_set_query_params(club=code_in)
-            except Exception:
-                pass
+            _reset_club_caches()
+
+            # URL 파라미터에 저장(즐겨찾기/재접속/스코어보드 공유 시 자동 진입)
+            _set_query_params_safely(**{CLUB_QP_KEY: code_in})
+
             st.rerun()
 
         st.stop()
 
-    # 5) URL club 파라미터가 비어있으면 현재 active_code로 채워두기(자동 진입용)
+    # 7) URL club 파라미터가 비어있거나 다르면 현재 active_code로 채워두기(자동 진입용)
     try:
-        if hasattr(st, "query_params"):
-            if (st.query_params.get("club") or "").upper() != active_code:
-                st.query_params["club"] = active_code
-        else:
-            st.experimental_set_query_params(club=active_code)
+        if (str(_get_query_param_value(CLUB_QP_KEY) or "").upper() != active_code) and active_code:
+            _set_query_params_safely(**{CLUB_QP_KEY: active_code})
     except Exception:
         pass
 
