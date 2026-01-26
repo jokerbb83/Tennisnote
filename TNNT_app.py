@@ -771,6 +771,7 @@ section.main{
 .msc-chip-m{background:#dbeafe; color:#1e40af;}
 .msc-chip-f{background:#ffe4e6; color:#be123c;}
 .msc-chip-u{background:#e5e7eb; color:#374151;}
+.msc-round-divider{border-top:2px solid #e5e7eb; margin:0.8rem 0 0.55rem 0;}
 
 
 
@@ -8550,8 +8551,36 @@ with tab3:
                     # ✅ 여기서 한 번 정의해줘야 해
                     score_options_local = SCORE_OPTIONS
 
+                    # ✅ 라운드(=게임번호) 계산을 위한 '코트 수' 추정
+                    def _extract_court_int(_c):
+                        try:
+                            _s = str(_c).strip() if _c is not None else ""
+                            _d = "".join([ch for ch in _s if ch.isdigit()])
+                            return int(_d) if _d else None
+                        except Exception:
+                            return None
+
+                    _court_ints = []
+                    for _it in game_list:
+                        try:
+                            _cc = _extract_court_int(_it[4])
+                            if _cc is not None:
+                                _court_ints.append(_cc)
+                        except Exception:
+                            pass
+                    _round_court_count = max(_court_ints) if _court_ints else 3
+
                     # 실제 게임들
                     for local_no, (idx, gtype, t1, t2, court) in enumerate(game_list, start=1):
+
+                        # ✅ 3코트면: (게임1-코트1, 게임1-코트2, 게임1-코트3) → (게임2-코트1 ...)
+                        round_no = ((local_no - 1) // int(_round_court_count)) + 1
+                        court_no_in_round = ((local_no - 1) % int(_round_court_count)) + 1
+
+                        # ✅ 라운드(=게임) 경계선: 코트 수 단위로 한 번씩
+                        if (court_no_in_round == 1) and (local_no != 1):
+                            st.markdown("<div class='msc-round-divider'></div>", unsafe_allow_html=True)
+
 
                         # ✅ 같은 라운드(코트1/2/...) 사이에는 경계선(구분선) 제거: 코트 1에서만 선 표시
                         try:
@@ -8562,8 +8591,10 @@ with tab3:
                             _court_i = None
 
                         _show_sep = True
-                        if _court_i is not None and _court_i != 1:
-                            _show_sep = False
+                        if _court_i is not None:
+                            _show_sep = (_court_i == 1)
+                        else:
+                            _show_sep = (court_no_in_round == 1)
 
                         _sep_css = "border-top:1px solid #e5e7eb;" if _show_sep else "border-top:none;"
                         _top_css = "margin-top:0.6rem; padding-top:0.4rem;" if _show_sep else "margin-top:0.25rem; padding-top:0.15rem;"
@@ -8571,7 +8602,7 @@ with tab3:
                         _chips_html = _msc_match_chips(t1, t2)
                         st.markdown(
                             f"<div class='msc-gamehead'>"
-                            f"<div style='font-weight:900;'>게임 {local_no} ({gtype}, 코트 {court})</div>"
+                            f"<div style='font-weight:900;'>게임 {round_no} ({gtype}, 코트 {court})</div>"
                             f"<div class='msc-chip-wrap'>{_chips_html}</div>"
                             f"</div>",
                             unsafe_allow_html=True,
