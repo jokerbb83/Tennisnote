@@ -1431,19 +1431,22 @@ def build_daily_report(sel_date, day_data):
 
         total_games += 1
         players_all = t1 + t2
-        attendees.update(players_all)
+        valid_players = [p for p in players_all if _is_valid_member(p)]
+        attendees.update(valid_players)
 
-        for p in players_all:
+        for p in valid_players:
             recs[p]["G"] += 1
 
         s1_val = s1 or 0
         s2_val = s2 or 0
         for p in t1:
-            recs[p]["score_for"] += s1_val
-            recs[p]["score_against"] += s2_val
+            if _is_valid_member(p):
+                recs[p]["score_for"] += s1_val
+                recs[p]["score_against"] += s2_val
         for p in t2:
-            recs[p]["score_for"] += s2_val
-            recs[p]["score_against"] += s1_val
+            if _is_valid_member(p):
+                recs[p]["score_for"] += s2_val
+                recs[p]["score_against"] += s1_val
 
         # 승/무/패 + 승점
         if r == "W":
@@ -1457,13 +1460,15 @@ def build_daily_report(sel_date, day_data):
             losers = []
 
         for p in winners:
-            recs[p]["W"] += 1
-            recs[p]["points"] += WIN_POINT
+            if _is_valid_member(p):
+                recs[p]["W"] += 1
+                recs[p]["points"] += WIN_POINT
         for p in losers:
-            recs[p]["L"] += 1
-            recs[p]["points"] += LOSE_POINT
+            if _is_valid_member(p):
+                recs[p]["L"] += 1
+                recs[p]["points"] += LOSE_POINT
         if r == "D":
-            for p in players_all:
+            for p in valid_players:
                 recs[p]["D"] += 1
                 recs[p]["points"] += DRAW_POINT
 
@@ -1471,10 +1476,12 @@ def build_daily_report(sel_date, day_data):
         if s1 is not None and s2 is not None:
             if s1 > 0 and s2 == 0:
                 for p in t1:
-                    baker_counter[p] += 1
+                    if _is_valid_member(p):
+                        baker_counter[p] += 1
             elif s2 > 0 and s1 == 0:
                 for p in t2:
-                    baker_counter[p] += 1
+                    if _is_valid_member(p):
+                        baker_counter[p] += 1
 
     if not attendees or total_games == 0:
         return []
@@ -1493,6 +1500,18 @@ def build_daily_report(sel_date, day_data):
             member_set = {p.get('name') for p in roster}
     except Exception:
         member_set = None
+
+    def _is_valid_member(_name: str) -> bool:
+        _name = str(_name or "").strip()
+        if not _name:
+            return False
+        # ✅ 게스트 제외
+        if _name == "게스트":
+            return False
+        # ✅ 교류전 상대(등록 roster 밖) 제외
+        if member_set is not None and _name not in member_set:
+            return False
+        return True
 
     for name, r in recs.items():
         if r.get('G', 0) == 0:
@@ -1522,7 +1541,7 @@ def build_daily_report(sel_date, day_data):
         )
 
     # 3) 무패 선수
-    undefeated = [name for name, r in recs.items() if r["G"] > 0 and r["L"] == 0]
+    undefeated = [name for name, r in recs.items() if _is_valid_member(name) and r["G"] > 0 and r["L"] == 0]
     if undefeated:
         names_str = ", ".join(undefeated)
         lines.append(f"오늘 무패 선수: {names_str}")
@@ -1530,7 +1549,7 @@ def build_daily_report(sel_date, day_data):
     # 4) 셧아웃 최다 선수 (상대 0점 승리)
     if baker_counter:
         max_b = max(baker_counter.values())
-        best_bakers = [n for n, c in baker_counter.items() if c == max_b]
+        best_bakers = [n for n, c in baker_counter.items() if _is_valid_member(n) and c == max_b]
         names_str = ", ".join(best_bakers)
         lines.append(f"상대를 0점으로 이긴 셧아웃 경기 최다: {names_str} (총 {max_b}번)")
 
@@ -6948,6 +6967,10 @@ def render_tab_today_session(tab):
             # -------------------------
             for (gno, rr, cc) in games:
 
+                # ✅ 라운드(=게임) 경계선: 코트 수 단위로 구분
+                if int(cc) == 1 and int(rr) > 1:
+                    st.markdown("<div class='msa-round-divider'></div>", unsafe_allow_html=True)
+
                 # 헤더(체크 + 게임명)
                 h1, h2 = st.columns([0.3, 9.1], vertical_alignment="center")
                 with h1:
@@ -6966,7 +6989,7 @@ def render_tab_today_session(tab):
                     _vals = [st.session_state.get(k, '선택') for k in _ks]
                     _chips = _match_chips_html(_vals, gtype)
                     st.markdown(
-                        f"<div class='msc-gamehead'><div style='font-weight:900;'>게임 {gno} · 코트 {cc}</div><div class='msc-chip-wrap'>{_chips}</div></div>",
+                        f"<div class='msc-gamehead'><div style='font-weight:900;'>게임 {rr} · 코트 {cc}</div><div class='msc-chip-wrap'>{_chips}</div></div>",
                         unsafe_allow_html=True,
                     )
 
