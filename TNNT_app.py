@@ -149,6 +149,44 @@ def get_club_name(club_code: str) -> str:
     return club_code
 
 
+
+def get_club_meta(club_code: str) -> dict:
+    """TNNT_clubs.json에서 클럽별 메타/설정을 가져온다(없으면 빈 dict)."""
+    club_code = _sanitize_club_code(club_code).upper()
+    reg = _load_club_registry()
+    meta = reg.get(club_code) if isinstance(reg, dict) else None
+    return meta if isinstance(meta, dict) else {}
+
+
+def get_club_setting(club_code: str, dotted_key: str, default=None):
+    """예: get_club_setting('MSPC', 'ui.observer_score_view_selector', False)"""
+    meta = get_club_meta(club_code)
+    cur = meta
+    for k in (dotted_key or "").split("."):
+        if not k:
+            continue
+        if not isinstance(cur, dict) or (k not in cur):
+            return default
+        cur = cur.get(k)
+    return cur if cur is not None else default
+
+
+def _pick_index(options: list, desired, fallback: int = 0) -> int:
+    try:
+        return list(options).index(desired)
+    except Exception:
+        return int(fallback)
+
+
+def get_default_doubles_mode_label(club_code: str) -> str:
+    """클럽별 복식 대진 기본값(옵션 문자열)."""
+    # 구형 포맷 호환: defaults.doubles_mode 또는 defaults.default_doubles_mode
+    v = get_club_setting(club_code, "defaults.default_doubles_mode", None)
+    if not v:
+        v = get_club_setting(club_code, "defaults.doubles_mode", None)
+    return str(v).strip() if v else ""
+
+
 def _get_user_email_from_streamlit() -> str | None:
     """가능하면 Streamlit 인증 정보에서 이메일을 가져온다."""
     # Streamlit 버전/배포환경에 따라 제공 키가 조금 다를 수 있어서 방어적으로 처리
@@ -353,7 +391,20 @@ def ensure_login_and_club():
     if not active_code:
         reg = _load_club_registry()
 
-        st.markdown("<div style='height:0.6rem;'></div>", unsafe_allow_html=True)
+        st.markdown(
+            """
+            <div style="text-align:center; margin-top:0.25rem; margin-bottom:0.4rem;">
+              <div style="font-size:1.05rem; font-weight:800; color:#111827;">
+                테니스클럽 경기기록 도우미
+              </div>
+              <div style="font-size:2.05rem; font-weight:900; letter-spacing:0.5px; color:#111827;">
+                TENNIS NOTE
+              </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        st.markdown("<div style='height:0.2rem;'></div>", unsafe_allow_html=True)
         st.markdown(
             """
             <div style="
@@ -6496,10 +6547,13 @@ def render_tab_today_session(tab):
                     "혼합복식 (남+여 짝)",
                     "한울 AA 방식 (4게임 고정)",
                 ]
+                _desired_mode = get_default_doubles_mode_label(DATA_FILE_PREFIX)
+                _default_idx = _pick_index(doubles_modes, _desired_mode, fallback=3) if _desired_mode else 3
+
                 mode_label = st.selectbox(
                     "복식 대진 방식",
                     doubles_modes,
-                    index=3,
+                    index=_default_idx,
                     key="doubles_mode_select",
                     disabled=is_manual_mode,
                 )
@@ -7442,9 +7496,21 @@ with tab3:
         if sel_date == "전체":
             view_mode_scores = "전체"
         else:
-            # ✅ 옵저버/스코어보드에서는 "표시 방식" 라디오 자체를 숨기고 항상 "전체"로 고정
+            # ✅ 옵저버/스코어보드: 클럽 설정에 따라 표시방식 선택 UI를 노출/숨김
             if IS_OBSERVER:
-                view_mode_scores = "전체"
+                allow_selector = bool(get_club_setting(DATA_FILE_PREFIX, "ui.observer_score_view_selector", False))
+                if allow_selector:
+                    _saved = day_data.get("score_view_mode", "전체")
+                    default_view_index = 1 if _saved == "전체" else 0  # ["조별", "전체"]에서 전체=1
+                    view_mode_scores = st.radio(
+                        "표시 방식",
+                        ["조별 보기 (A/B조)", "전체"],
+                        horizontal=True,
+                        key=f"obs_view_mode_scores_{DATA_FILE_PREFIX}_{sel_date}",
+                        index=default_view_index,
+                    )
+                else:
+                    view_mode_scores = "전체"
             else:
                 # lock_view=True면 전체로 고정하고 라디오를 안 보여줌
                 if lock_view:
@@ -7452,7 +7518,6 @@ with tab3:
                 else:
                     # ✅ 저장된 값이 없으면 기본은 "전체"
                     saved_view = day_data.get("score_view_mode", "전체")
-
                     default_view_index = 1 if saved_view == "전체" else 0  # ["조별", "전체"]에서 전체=1
 
                     view_mode_scores = st.radio(
@@ -7470,8 +7535,8 @@ with tab3:
                         st.session_state.sessions = sessions
                         save_sessions(sessions)
 
-
         # 나중에 다시 그리기 위한 요약 컨테이너
+
         summary_container = st.container()
 
         st.markdown("---")
@@ -10790,4 +10855,5 @@ with tab6:
         else:
             st.info("스코어보드 앱 URL을 secrets에 `SCOREBOARD_URL`로 넣어주면 버튼이 자동으로 활성화됩니다.")
             st.code(f"?{qs}")
+
 
