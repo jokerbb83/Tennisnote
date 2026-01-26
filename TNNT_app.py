@@ -772,6 +772,30 @@ section.main{
 .msc-chip-f{background:#ffe4e6; color:#be123c;}
 .msc-chip-u{background:#e5e7eb; color:#374151;}
 
+
+
+/* ✅ (Streamlit Cloud) 남는 최상단 '빈 띠'까지 더 줄이기
+   - header/decoration을 숨겨도 main 영역이 아래로 밀려있을 때가 있어
+   - 아래는 main 컨테이너를 살짝 위로 당겨서 여백을 사실상 0에 가깝게 만든다 */
+:root{
+  --tnnt-top-shift: 2.6rem;   /* 필요하면 2.0~3.2 사이로 조절 */
+}
+[data-testid="stAppViewContainer"] > .main,
+[data-testid="stAppViewContainer"] .main,
+section.main{
+  margin-top: calc(-1 * var(--tnnt-top-shift)) !important;
+}
+@media (max-width: 768px){
+  :root{ --tnnt-top-shift: 2.2rem; }
+}
+
+/* ✅ st.title/h1 자체 여백도 최소화 */
+[data-testid="stAppViewContainer"] h1,
+[data-testid="stAppViewContainer"] .stTitle,
+[data-testid="stAppViewContainer"] .stHeading{
+  margin-top: 0 !important;
+  padding-top: 0 !important;
+}
 </style>
 """, unsafe_allow_html=True)
 
