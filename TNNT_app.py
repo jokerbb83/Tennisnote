@@ -40,10 +40,10 @@ DEFAULT_CLUB_CODE = os.getenv("TNNT_DEFAULT_CLUB_CODE", "").strip()
 DEFAULT_CLUB_NAME = os.getenv("TNNT_DEFAULT_CLUB_NAME", "테스노트").strip()
 
 # ✅ 관리자(메인) 앱 타이틀(표시용)
-ADMIN_PURPOSE = "관리 도우미"  # 예: "도우미 (Beta)"
+ADMIN_PURPOSE = "관리 도우미(Beta)"  # 예: "도우미 (Beta)"
 
 # ✅ 스코어보드(읽기전용) 앱 타이틀(표시용)
-SCOREBOARD_PURPOSE = "스코어보드"
+SCOREBOARD_PURPOSE = "스코어보드 (Beta)"
 
 # ✅ 앱 모드(환경변수 호환)
 #  - "admin"(기본) / "observer"(옵저버) / "scoreboard"(스코어보드)
@@ -423,7 +423,7 @@ def ensure_login_and_club():
         )
 
         st.markdown("#### 클럽코드 입력")
-        _in = st.text_input("클럽코드", value="", placeholder="알파벳 네자리", key="first_club_code_input")
+        _in = st.text_input("클럽코드", value="", placeholder="예: MSPC, HMMC", key="first_club_code_input")
         c1, c2 = st.columns([1, 1])
         with c1:
             apply = st.button("시작하기", use_container_width=True)
@@ -706,22 +706,35 @@ if IS_OBSERVER:
 
 st.markdown("""
 <style>
-/* ✅ Streamlit 상단 헤더/데코(파란 바) 숨김 */
-header[data-testid="stHeader"]{
-  visibility: hidden !important;
-  height: 0px !important;
+/* ✅ Streamlit 상단 헤더/데코(파란 바/여백) 완전 제거 */
+header[data-testid="stHeader"],
+div[data-testid="stHeader"]{
+  display: none !important;
+  height: 0 !important;
 }
+div[data-testid="stToolbar"]{
+  display: none !important;
+  height: 0 !important;
+}
+div[data-testid="stDecoration"],
 [data-testid="stDecoration"]{
   display: none !important;
+  height: 0 !important;
 }
-[data-testid="stToolbar"]{
-  visibility: hidden !important;
-  height: 0px !important;
+
+/* ✅ 'header를 숨겨도 남는' 상단 패딩/마진까지 제거 */
+[data-testid="stAppViewContainer"],
+[data-testid="stAppViewContainer"] > .main,
+[data-testid="stAppViewContainer"] .main,
+section.main{
+  padding-top: 0 !important;
+  margin-top: 0 !important;
 }
 
 /* ✅ 상단 타이틀(로고/앱명) 위 여백 최소화 */
-[data-testid="stAppViewContainer"] .block-container{
-  padding-top: 0.12rem !important;
+[data-testid="stAppViewContainer"] .block-container,
+.block-container{
+  padding-top: 0.10rem !important;
 }
 [data-testid="stAppViewContainer"] h1{
   margin-top: 0rem !important;
@@ -3531,7 +3544,7 @@ MOBILE_LANDSCAPE = """
     .block-container {
         padding-left: 0.35rem !important;
         padding-right: 0.35rem !important;
-        padding-top: 0.4rem !important;
+        padding-top: 0.12rem !important;
         padding-bottom: 0.4rem !important;
     }
 
@@ -3755,7 +3768,7 @@ MOBILE_CSS = """
 <style>
 /* 전체 패딩 줄이기 */
 .block-container {
-    padding-top: 0.8rem;
+    padding-top: 0.12rem !important;
     padding-bottom: 1.5rem;
     padding-left: 0.9rem;
     padding-right: 0.9rem;
