@@ -40,10 +40,10 @@ DEFAULT_CLUB_CODE = os.getenv("TNNT_DEFAULT_CLUB_CODE", "").strip()
 DEFAULT_CLUB_NAME = os.getenv("TNNT_DEFAULT_CLUB_NAME", "테스노트").strip()
 
 # ✅ 관리자(메인) 앱 타이틀(표시용)
-ADMIN_PURPOSE = "관리 도우미"  # 예: "도우미 (Beta)"
+ADMIN_PURPOSE = "관리 도우미(Beta)"  # 예: "도우미 (Beta)"
 
 # ✅ 스코어보드(읽기전용) 앱 타이틀(표시용)
-SCOREBOARD_PURPOSE = "스코어보드"
+SCOREBOARD_PURPOSE = "스코어보드 (Beta)"
 
 # ✅ 앱 모드(환경변수 호환)
 #  - "admin"(기본) / "observer"(옵저버) / "scoreboard"(스코어보드)
@@ -121,22 +121,6 @@ def _load_club_registry() -> dict:
     return out
 
 
-def _github_auth_header(token: str | None) -> str | None:
-    """GitHub Authorization 헤더 값을 만든다.
-
-    Streamlit secrets에서 제공되는 `github_pat_...` 형태는 보통 fine-grained PAT이므로
-    `Bearer` 스킴을 사용하고, 그 외는 `token` 스킴을 사용한다.
-    """
-    if not token:
-        return None
-    t = str(token).strip()
-    if not t:
-        return None
-    if t.startswith("github_pat_"):
-        return f"Bearer {t}"
-    return f"token {t}"
-
-
 def get_club_name(club_code: str) -> str:
     club_code = _sanitize_club_code(club_code)
     reg = _load_club_registry()
@@ -147,44 +131,6 @@ def get_club_name(club_code: str) -> str:
     if club_code == DEFAULT_CLUB_CODE:
         return DEFAULT_CLUB_NAME
     return club_code
-
-
-
-def get_club_meta(club_code: str) -> dict:
-    """TNNT_clubs.json에서 클럽별 메타/설정을 가져온다(없으면 빈 dict)."""
-    club_code = _sanitize_club_code(club_code).upper()
-    reg = _load_club_registry()
-    meta = reg.get(club_code) if isinstance(reg, dict) else None
-    return meta if isinstance(meta, dict) else {}
-
-
-def get_club_setting(club_code: str, dotted_key: str, default=None):
-    """예: get_club_setting('MSPC', 'ui.observer_score_view_selector', False)"""
-    meta = get_club_meta(club_code)
-    cur = meta
-    for k in (dotted_key or "").split("."):
-        if not k:
-            continue
-        if not isinstance(cur, dict) or (k not in cur):
-            return default
-        cur = cur.get(k)
-    return cur if cur is not None else default
-
-
-def _pick_index(options: list, desired, fallback: int = 0) -> int:
-    try:
-        return list(options).index(desired)
-    except Exception:
-        return int(fallback)
-
-
-def get_default_doubles_mode_label(club_code: str) -> str:
-    """클럽별 복식 대진 기본값(옵션 문자열)."""
-    # 구형 포맷 호환: defaults.doubles_mode 또는 defaults.default_doubles_mode
-    v = get_club_setting(club_code, "defaults.default_doubles_mode", None)
-    if not v:
-        v = get_club_setting(club_code, "defaults.doubles_mode", None)
-    return str(v).strip() if v else ""
 
 
 def _get_user_email_from_streamlit() -> str | None:
@@ -382,29 +328,16 @@ def ensure_login_and_club():
         st.markdown("---")
         if active_code:
             st.caption(f"현재 클럽: **{get_club_name(active_code)}** (`{active_code}`)")
-            if not IS_SCOREBOARD:
-                st.caption("클럽 변경은 마지막 탭 **설정**에서 할 수 있어요.")
+            st.caption("클럽 변경은 마지막 탭 **설정**에서 할 수 있어요.")
         else:
             st.caption("클럽 미선택")
 
     # 6) 클럽코드가 없으면: 메인에서 먼저 입력 받기
     if not active_code:
         reg = _load_club_registry()
+        available = ", ".join(sorted(reg.keys())) if reg else ""
 
-        st.markdown(
-            """
-            <div style="text-align:center; margin-top:0.25rem; margin-bottom:0.4rem;">
-              <div style="font-size:1.05rem; font-weight:800; color:#111827;">
-                테니스클럽 경기기록 도우미
-              </div>
-              <div style="font-size:2.05rem; font-weight:900; letter-spacing:0.5px; color:#111827;">
-                TENNIS NOTE
-              </div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-        st.markdown("<div style='height:0.2rem;'></div>", unsafe_allow_html=True)
+        st.markdown("<div style='height:0.6rem;'></div>", unsafe_allow_html=True)
         st.markdown(
             """
             <div style="
@@ -423,12 +356,9 @@ def ensure_login_and_club():
         )
 
         st.markdown("#### 클럽코드 입력")
-        _in = st.text_input("클럽코드", value="", placeholder="예: ABCD, EFGH", key="first_club_code_input")
-        c1, c2 = st.columns([1, 1])
-        with c1:
-            apply = st.button("시작하기", use_container_width=True)
-        with c2:
-            st.caption("")
+        _in = st.text_input("클럽코드", value="", placeholder="예: MSPC, HMMC", key="first_club_code_input")
+
+        st.button("시작하기", use_container_width=True)
 
         if apply:
             code_in = _sanitize_club_code(_in).upper()
@@ -511,9 +441,9 @@ def render_footer():
 
 
 # =========================================================
-# GitHub JSON 업서트 저장 유틸
-# - Streamlit Secrets(최소): GITHUB_TOKEN, GITHUB_REPO, GITHUB_BRANCH
-# - 파일 경로는 멀티클럽 규칙에 따라 `_resolve_github_path()`로 자동 결정
+# GitHub JSON 업서트 저장 유틸 (MSC_sessions.json) (MSC_sessions.json)
+# - Streamlit Secrets에 아래가 있어야 함:
+#   GITHUB_TOKEN, GITHUB_REPO, GITHUB_BRANCH, GITHUB_FILE_PATH
 # =========================================================
 
 def github_upsert_json_file(
@@ -549,12 +479,9 @@ def github_upsert_json_file(
 
     api = f"https://api.github.com/repos/{repo}/contents/{file_path}"
     headers = {
+        "Authorization": f"token {token}",
         "Accept": "application/vnd.github+json",
-        "X-GitHub-Api-Version": "2022-11-28",
     }
-    auth = _github_auth_header(token)
-    if auth:
-        headers["Authorization"] = auth
 
     # 1) 기존 파일 sha 가져오기 (업데이트하려면 sha 필요)
     sha = None
@@ -582,13 +509,6 @@ def github_upsert_json_file(
     # 3) PUT (커밋)
     r2 = requests.put(api, headers=headers, json=payload, timeout=20)
     if r2.status_code not in (200, 201):
-        # 403은 토큰 권한/레포 접근 문제로 자주 발생 (fine-grained PAT 권한 포함)
-        if r2.status_code == 403:
-            raise RuntimeError(
-                "GitHub PUT 실패(403). 토큰이 레포에 대한 쓰기 권한이 없을 가능성이 큽니다. "
-                "(Fine-grained PAT이면: Repository access에 Tennisnote 포함 + Contents: Read and write)\n"
-                f"원문: {r2.text}"
-            )
         raise RuntimeError(f"GitHub PUT 실패: {r2.status_code} / {r2.text}")
 
     return r2.json()
@@ -706,35 +626,9 @@ if IS_OBSERVER:
 
 st.markdown("""
 <style>
-/* ✅ Streamlit 상단 헤더/데코(파란 바/여백) 완전 제거 */
-header[data-testid="stHeader"],
-div[data-testid="stHeader"]{
-  display: none !important;
-  height: 0 !important;
-}
-div[data-testid="stToolbar"]{
-  display: none !important;
-  height: 0 !important;
-}
-div[data-testid="stDecoration"],
-[data-testid="stDecoration"]{
-  display: none !important;
-  height: 0 !important;
-}
-
-/* ✅ 'header를 숨겨도 남는' 상단 패딩/마진까지 제거 */
-[data-testid="stAppViewContainer"],
-[data-testid="stAppViewContainer"] > .main,
-[data-testid="stAppViewContainer"] .main,
-section.main{
-  padding-top: 0 !important;
-  margin-top: 0 !important;
-}
-
 /* ✅ 상단 타이틀(로고/앱명) 위 여백 최소화 */
-[data-testid="stAppViewContainer"] .block-container,
-.block-container{
-  padding-top: 0.10rem !important;
+[data-testid="stAppViewContainer"] .block-container{
+  padding-top: 0.12rem !important;
 }
 [data-testid="stAppViewContainer"] h1{
   margin-top: 0rem !important;
@@ -771,32 +665,7 @@ section.main{
 .msc-chip-m{background:#dbeafe; color:#1e40af;}
 .msc-chip-f{background:#ffe4e6; color:#be123c;}
 .msc-chip-u{background:#e5e7eb; color:#374151;}
-.msc-round-divider{border-top:2px solid #e5e7eb; margin:0.8rem 0 0.55rem 0;}
 
-
-
-/* ✅ (Streamlit Cloud) 남는 최상단 '빈 띠'까지 더 줄이기
-   - header/decoration을 숨겨도 main 영역이 아래로 밀려있을 때가 있어
-   - 아래는 main 컨테이너를 살짝 위로 당겨서 여백을 사실상 0에 가깝게 만든다 */
-:root{
-  --tnnt-top-shift: 2.6rem;   /* 필요하면 2.0~3.2 사이로 조절 */
-}
-[data-testid="stAppViewContainer"] > .main,
-[data-testid="stAppViewContainer"] .main,
-section.main{
-  margin-top: calc(-1 * var(--tnnt-top-shift)) !important;
-}
-@media (max-width: 768px){
-  :root{ --tnnt-top-shift: 2.2rem; }
-}
-
-/* ✅ st.title/h1 자체 여백도 최소화 */
-[data-testid="stAppViewContainer"] h1,
-[data-testid="stAppViewContainer"] .stTitle,
-[data-testid="stAppViewContainer"] .stHeading{
-  margin-top: 0 !important;
-  padding-top: 0 !important;
-}
 </style>
 """, unsafe_allow_html=True)
 
@@ -1393,16 +1262,41 @@ def detect_score_warnings(day_data):
 def build_daily_report(sel_date, day_data):
     """
     선택된 날짜(sel_date)에 대한 '오늘의 요약 리포트'용 문장 리스트 생성.
-    - 출석 인원 / 점수 입력된 경기 수
-    - MVP / 공동 MVP
-    - 무패 선수
-    - 상대를 0점으로 이긴 셧아웃 최다 선수
+    ✅ 게스트 / 교류전(클럽 외 인원) 상대는 요약 리포트에서 제외
+      - 출석 인원 / 점수 입력된 경기 수
+      - MVP
+      - 무패 선수
+      - 상대를 0점으로 이긴 셧아웃 최다 선수
     """
     schedule = day_data.get("schedule", [])
     results = day_data.get("results", {})
 
     if not schedule:
         return []
+
+    # ✅ 현재 클럽 '회원' 집합 (players.json 기반)
+    member_set = None
+    try:
+        global roster
+        if isinstance(roster, list):
+            member_set = {p.get("name") for p in roster if isinstance(p, dict) and p.get("name")}
+    except Exception:
+        member_set = None
+
+    def _exclude_from_report(name: str) -> bool:
+        """게스트/교류전 상대(회원명단 밖)는 요약리포트에서 제외"""
+        if not name:
+            return True
+        n = str(name).strip()
+        if not n:
+            return True
+        # '게스트' 라벨/이름은 제외
+        if n == "게스트":
+            return True
+        # 회원명단이 있으면, 명단 밖 인원은 '교류전 상대'로 간주하여 제외
+        if member_set is not None and n not in member_set:
+            return True
+        return False
 
     recs = defaultdict(
         lambda: {
@@ -1430,22 +1324,35 @@ def build_daily_report(sel_date, day_data):
             continue
 
         total_games += 1
-        players_all = t1 + t2
-        attendees.update(players_all)
+        players_all = (t1 or []) + (t2 or [])
 
+        # ✅ 출석 인원(회원만)
         for p in players_all:
+            if not _exclude_from_report(p):
+                attendees.add(p)
+
+        # ✅ 개인 기록(회원만)
+        for p in players_all:
+            if _exclude_from_report(p):
+                continue
             recs[p]["G"] += 1
 
         s1_val = s1 or 0
         s2_val = s2 or 0
-        for p in t1:
+
+        for p in (t1 or []):
+            if _exclude_from_report(p):
+                continue
             recs[p]["score_for"] += s1_val
             recs[p]["score_against"] += s2_val
-        for p in t2:
+
+        for p in (t2 or []):
+            if _exclude_from_report(p):
+                continue
             recs[p]["score_for"] += s2_val
             recs[p]["score_against"] += s1_val
 
-        # 승/무/패 + 승점
+        # 승/무/패 + 승점 (회원만)
         if r == "W":
             winners = t1
             losers = t2
@@ -1456,24 +1363,36 @@ def build_daily_report(sel_date, day_data):
             winners = []
             losers = []
 
-        for p in winners:
+        for p in (winners or []):
+            if _exclude_from_report(p):
+                continue
             recs[p]["W"] += 1
             recs[p]["points"] += WIN_POINT
-        for p in losers:
+
+        for p in (losers or []):
+            if _exclude_from_report(p):
+                continue
             recs[p]["L"] += 1
             recs[p]["points"] += LOSE_POINT
+
         if r == "D":
             for p in players_all:
+                if _exclude_from_report(p):
+                    continue
                 recs[p]["D"] += 1
                 recs[p]["points"] += DRAW_POINT
 
-        # 셧아웃(상대 0점 승리) 집계
+        # 셧아웃(상대 0점 승리) 집계 (회원만)
         if s1 is not None and s2 is not None:
             if s1 > 0 and s2 == 0:
-                for p in t1:
+                for p in (t1 or []):
+                    if _exclude_from_report(p):
+                        continue
                     baker_counter[p] += 1
             elif s2 > 0 and s1 == 0:
-                for p in t2:
+                for p in (t2 or []):
+                    if _exclude_from_report(p):
+                        continue
                     baker_counter[p] += 1
 
     if not attendees or total_games == 0:
@@ -1483,25 +1402,16 @@ def build_daily_report(sel_date, day_data):
 
     # 1) 기본 출석 / 경기 수
     lines.append(f"출석 인원 {len(attendees)}명, 점수 입력된 경기 {total_games}게임")
+
     # 2) 오늘의 MVP (최다승 → 동률이면 득실차)
     best_wins = -1
     candidates = []
-    member_set = None
-    try:
-        global roster
-        if isinstance(roster, list):
-            member_set = {p.get('name') for p in roster}
-    except Exception:
-        member_set = None
-
     for name, r in recs.items():
-        if r.get('G', 0) == 0:
+        if r.get("G", 0) == 0:
             continue
-        if name == '게스트':
+        if _exclude_from_report(name):
             continue
-        if member_set is not None and name not in member_set:
-            continue
-        w = r.get('W', 0)
+        w = r.get("W", 0)
         if w > best_wins:
             best_wins = w
             candidates = [name]
@@ -1511,7 +1421,7 @@ def build_daily_report(sel_date, day_data):
     if candidates and best_wins >= 0:
         def _diff(n):
             rr = recs[n]
-            return int(rr.get('score_for', 0) - rr.get('score_against', 0))
+            return int(rr.get("score_for", 0) - rr.get("score_against", 0))
 
         best_diff = max(_diff(n) for n in candidates)
         winners = [n for n in candidates if _diff(n) == best_diff]
@@ -1521,18 +1431,20 @@ def build_daily_report(sel_date, day_data):
             f"오늘의 MVP: {who} ({r['W']}승 {r['D']}무 {r['L']}패, 득실차 {_diff(who)}점)"
         )
 
-    # 3) 무패 선수
-    undefeated = [name for name, r in recs.items() if r["G"] > 0 and r["L"] == 0]
+    # 3) 무패 선수 (회원만)
+    undefeated = [
+        name for name, r in recs.items()
+        if (not _exclude_from_report(name)) and r.get("G", 0) > 0 and r.get("L", 0) == 0
+    ]
     if undefeated:
-        names_str = ", ".join(undefeated)
-        lines.append(f"오늘 무패 선수: {names_str}")
+        lines.append(f"오늘 무패 선수: {', '.join(undefeated)}")
 
-    # 4) 셧아웃 최다 선수 (상대 0점 승리)
+    # 4) 셧아웃 최다 선수 (회원만)
     if baker_counter:
         max_b = max(baker_counter.values())
-        best_bakers = [n for n, c in baker_counter.items() if c == max_b]
-        names_str = ", ".join(best_bakers)
-        lines.append(f"상대를 0점으로 이긴 셧아웃 경기 최다: {names_str} (총 {max_b}번)")
+        best_bakers = [n for n, c in baker_counter.items() if c == max_b and (not _exclude_from_report(n))]
+        if best_bakers:
+            lines.append(f"상대를 0점으로 이긴 셧아웃 경기 최다: {', '.join(best_bakers)} (총 {max_b}번)")
 
     return lines
 
@@ -1565,13 +1477,9 @@ def _github_read_json(repo: str, branch: str, file_path: str, token: str | None)
 
     file_path = str(file_path).lstrip("/")
     api = f"https://api.github.com/repos/{repo}/contents/{file_path}"
-    headers = {
-        "Accept": "application/vnd.github+json",
-        "X-GitHub-Api-Version": "2022-11-28",
-    }
-    auth = _github_auth_header(token)
-    if auth:
-        headers["Authorization"] = auth
+    headers = {"Accept": "application/vnd.github+json"}
+    if token:
+        headers["Authorization"] = f"token {token}"
 
     try:
         r = requests.get(api, headers=headers, params={"ref": branch}, timeout=20)
@@ -1818,9 +1726,10 @@ def save_sessions(sessions):
     repo = str(st.secrets.get("GITHUB_REPO", "")).strip()
     branch = str(st.secrets.get("GITHUB_BRANCH", "main")).strip()
     token = st.secrets.get("GITHUB_TOKEN", "") or None
-    # ✅ 멀티클럽 경로: 기본은 .sessions/{CLUB}_sessions.json
-    # secrets에 경로를 따로 안 넣어도 현재 클럽 기준으로 자동 결정
-    file_path = _resolve_github_path(SESSIONS_FILE)
+    file_path = str(
+        st.secrets.get("GITHUB_SESSIONS_FILE_PATH",
+                       st.secrets.get("GITHUB_FILE_PATH", SESSIONS_FILE))
+    ).strip().lstrip("/")
 
     # token이 없으면 private repo 저장은 불가. (public read는 가능)
     if repo and token and file_path:
@@ -3569,7 +3478,7 @@ MOBILE_LANDSCAPE = """
     .block-container {
         padding-left: 0.35rem !important;
         padding-right: 0.35rem !important;
-        padding-top: 0.12rem !important;
+        padding-top: 0.4rem !important;
         padding-bottom: 0.4rem !important;
     }
 
@@ -3793,7 +3702,7 @@ MOBILE_CSS = """
 <style>
 /* 전체 패딩 줄이기 */
 .block-container {
-    padding-top: 0.12rem !important;
+    padding-top: 0.8rem;
     padding-bottom: 1.5rem;
     padding-left: 0.9rem;
     padding-right: 0.9rem;
@@ -6598,13 +6507,10 @@ def render_tab_today_session(tab):
                     "혼합복식 (남+여 짝)",
                     "한울 AA 방식 (4게임 고정)",
                 ]
-                _desired_mode = get_default_doubles_mode_label(DATA_FILE_PREFIX)
-                _default_idx = _pick_index(doubles_modes, _desired_mode, fallback=3) if _desired_mode else 3
-
                 mode_label = st.selectbox(
                     "복식 대진 방식",
                     doubles_modes,
-                    index=_default_idx,
+                    index=3,
                     key="doubles_mode_select",
                     disabled=is_manual_mode,
                 )
@@ -7547,21 +7453,9 @@ with tab3:
         if sel_date == "전체":
             view_mode_scores = "전체"
         else:
-            # ✅ 옵저버/스코어보드: 클럽 설정에 따라 표시방식 선택 UI를 노출/숨김
+            # ✅ 옵저버/스코어보드에서는 "표시 방식" 라디오 자체를 숨기고 항상 "전체"로 고정
             if IS_OBSERVER:
-                allow_selector = bool(get_club_setting(DATA_FILE_PREFIX, "ui.observer_score_view_selector", False))
-                if allow_selector:
-                    _saved = day_data.get("score_view_mode", "전체")
-                    default_view_index = 1 if _saved == "전체" else 0  # ["조별", "전체"]에서 전체=1
-                    view_mode_scores = st.radio(
-                        "표시 방식",
-                        ["조별 보기 (A/B조)", "전체"],
-                        horizontal=True,
-                        key=f"obs_view_mode_scores_{DATA_FILE_PREFIX}_{sel_date}",
-                        index=default_view_index,
-                    )
-                else:
-                    view_mode_scores = "전체"
+                view_mode_scores = "전체"
             else:
                 # lock_view=True면 전체로 고정하고 라디오를 안 보여줌
                 if lock_view:
@@ -7569,6 +7463,7 @@ with tab3:
                 else:
                     # ✅ 저장된 값이 없으면 기본은 "전체"
                     saved_view = day_data.get("score_view_mode", "전체")
+
                     default_view_index = 1 if saved_view == "전체" else 0  # ["조별", "전체"]에서 전체=1
 
                     view_mode_scores = st.radio(
@@ -7586,8 +7481,8 @@ with tab3:
                         st.session_state.sessions = sessions
                         save_sessions(sessions)
 
-        # 나중에 다시 그리기 위한 요약 컨테이너
 
+        # 나중에 다시 그리기 위한 요약 컨테이너
         summary_container = st.container()
 
         st.markdown("---")
@@ -8551,36 +8446,8 @@ with tab3:
                     # ✅ 여기서 한 번 정의해줘야 해
                     score_options_local = SCORE_OPTIONS
 
-                    # ✅ 라운드(=게임번호) 계산을 위한 '코트 수' 추정
-                    def _extract_court_int(_c):
-                        try:
-                            _s = str(_c).strip() if _c is not None else ""
-                            _d = "".join([ch for ch in _s if ch.isdigit()])
-                            return int(_d) if _d else None
-                        except Exception:
-                            return None
-
-                    _court_ints = []
-                    for _it in game_list:
-                        try:
-                            _cc = _extract_court_int(_it[4])
-                            if _cc is not None:
-                                _court_ints.append(_cc)
-                        except Exception:
-                            pass
-                    _round_court_count = max(_court_ints) if _court_ints else 3
-
                     # 실제 게임들
                     for local_no, (idx, gtype, t1, t2, court) in enumerate(game_list, start=1):
-
-                        # ✅ 3코트면: (게임1-코트1, 게임1-코트2, 게임1-코트3) → (게임2-코트1 ...)
-                        round_no = ((local_no - 1) // int(_round_court_count)) + 1
-                        court_no_in_round = ((local_no - 1) % int(_round_court_count)) + 1
-
-                        # ✅ 라운드(=게임) 경계선: 코트 수 단위로 한 번씩
-                        if (court_no_in_round == 1) and (local_no != 1):
-                            st.markdown("<div class='msc-round-divider'></div>", unsafe_allow_html=True)
-
 
                         # ✅ 같은 라운드(코트1/2/...) 사이에는 경계선(구분선) 제거: 코트 1에서만 선 표시
                         try:
@@ -8591,10 +8458,8 @@ with tab3:
                             _court_i = None
 
                         _show_sep = True
-                        if _court_i is not None:
-                            _show_sep = (_court_i == 1)
-                        else:
-                            _show_sep = (court_no_in_round == 1)
+                        if _court_i is not None and _court_i != 1:
+                            _show_sep = False
 
                         _sep_css = "border-top:1px solid #e5e7eb;" if _show_sep else "border-top:none;"
                         _top_css = "margin-top:0.6rem; padding-top:0.4rem;" if _show_sep else "margin-top:0.25rem; padding-top:0.15rem;"
@@ -8602,7 +8467,7 @@ with tab3:
                         _chips_html = _msc_match_chips(t1, t2)
                         st.markdown(
                             f"<div class='msc-gamehead'>"
-                            f"<div style='font-weight:900;'>게임 {round_no} ({gtype}, 코트 {court})</div>"
+                            f"<div style='font-weight:900;'>게임 {local_no} ({gtype}, 코트 {court})</div>"
                             f"<div class='msc-chip-wrap'>{_chips_html}</div>"
                             f"</div>",
                             unsafe_allow_html=True,
@@ -10875,66 +10740,55 @@ with tab6:
     else:
         st.warning("현재 선택된 클럽이 없습니다. 클럽코드를 입력해 주세요.")
 
+    # 가능한 코드 안내
+    available_codes = sorted(list(reg.keys())) if isinstance(reg, dict) else []
+    if available_codes:
+        st.caption("가능한 클럽코드: " + ", ".join(available_codes))
 
-    # ✅ 스코어보드는 완전 읽기 전용 느낌: 클럽 변경 UI 숨김
-    if IS_SCOREBOARD:
-        st.info("스코어보드(읽기 전용)에서는 클럽 변경이 비활성화되어 있습니다.")
-    else:
-        new_code = st.text_input("클럽코드", value=cur_code, placeholder="예: MSPC, HMMC", key="settings_club_code_input")
+    new_code = st.text_input("클럽코드", value=cur_code, placeholder="예: MSPC, HMMC", key="settings_club_code_input")
 
-        c1, c2 = st.columns([1, 2])
-        with c1:
-            apply_club = st.button("클럽코드 적용", use_container_width=True)
-        with c2:
-            st.caption("적용하면 해당 클럽의 선수들과 경기들의 기록을 다시 불러옵니다.")
+    c1, c2 = st.columns([1, 2])
+    with c1:
+        apply_club = st.button("클럽코드 적용", use_container_width=True)
+    with c2:
+        st.caption("적용하면 해당 클럽의 선수들과 경기들 기록을 다시 불러옵니다.")
 
-        if apply_club:
-            code_in = _sanitize_club_code(new_code).upper()
-            if not code_in:
-                st.warning("클럽코드를 입력해 주세요.")
-                st.stop()
-            if reg and (code_in not in reg):
-                st.warning("등록되지 않은 클럽코드입니다. 다시 확인해 주세요.")
-                st.stop()
+    if apply_club:
+        code_in = _sanitize_club_code(new_code).upper()
+        if not code_in:
+            st.warning("클럽코드를 입력해 주세요.")
+            st.stop()
+        if available_codes and (code_in not in reg):
+            st.warning("등록되지 않은 클럽코드입니다. 다시 확인해 주세요.")
+            st.stop()
 
-            st.session_state["club_code"] = code_in
+        st.session_state["club_code"] = code_in
 
-            # URL 파라미터 동기화(재접속/공유 시 자동 선택)
-            _set_query_params_safely(**{CLUB_QP_KEY: code_in})
+        # URL 파라미터 동기화(재접속/공유 시 자동 선택)
+        try:
+            if hasattr(st, "query_params"):
+                st.query_params["club"] = code_in
+            else:
+                st.experimental_set_query_params(club=code_in)
+        except Exception:
+            pass
 
-            # 캐시된 데이터/상태 초기화(클럽 변경 시)
-            for k in [
-                "_players_cache",
-                "_sessions_cache",
-                "_players_cache_ts",
-                "_sessions_cache_ts",
-                # 클럽 변경 시, 이미 로드된 roster/sessions가 남아있으면 다른 클럽 데이터가 안 보임
-                "roster",
-                "sessions",
-                "current_order",
-                "shuffle_count",
-                "_loaded_club_code",
-            ]:
-                if k in st.session_state:
-                    del st.session_state[k]
+        # 캐시된 데이터/상태 초기화(클럽 변경 시)
+        for k in [
+            "_players_cache",
+            "_sessions_cache",
+            "_players_cache_ts",
+            "_sessions_cache_ts",
+            # 클럽 변경 시, 이미 로드된 roster/sessions가 남아있으면 다른 클럽 데이터가 안 보임
+            "roster",
+            "sessions",
+            "current_order",
+            "shuffle_count",
+            "_loaded_club_code",
+        ]:
+            if k in st.session_state:
+                del st.session_state[k]
 
-            st.success("클럽코드가 적용되었습니다.")
-            safe_rerun()
-
-    # ✅ 관리자용: 스코어보드 링크(클럽코드 자동 포함)
-    if (not IS_SCOREBOARD) and (not IS_OBSERVER) and cur_code:
-        st.markdown("---")
-        st.markdown("### 📣 스코어보드 링크")
-        sb_base = str(st.secrets.get("SCOREBOARD_URL", "") or os.getenv("TNNT_SCOREBOARD_URL", "")).strip()
-        qs = f"club={cur_code}"
-        if sb_base:
-            url = sb_base
-            joiner = "&" if ("?" in url) else "?"
-            url = f"{url}{joiner}{qs}"
-            st.link_button("📣 스코어보드 열기", url, use_container_width=True)
-            st.caption("링크를 공유하면 클럽코드 입력 없이 바로 해당 클럽 스코어보드로 진입합니다.")
-        else:
-            st.info("스코어보드 앱 URL을 secrets에 `SCOREBOARD_URL`로 넣어주면 버튼이 자동으로 활성화됩니다.")
-            st.code(f"?{qs}")
-
+        st.success("클럽코드가 적용되었습니다.")
+        safe_rerun()
 
