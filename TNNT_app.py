@@ -1419,6 +1419,27 @@ def build_daily_report(sel_date, day_data):
     total_games = 0
     baker_counter = Counter()
 
+    member_set = None
+    try:
+        global roster
+        if isinstance(roster, list):
+            member_set = {p.get('name') for p in roster}
+    except Exception:
+        member_set = None
+
+    def _is_valid_member(_name: str) -> bool:
+        _name = str(_name or "").strip()
+        if not _name:
+            return False
+        # ✅ 게스트 제외
+        if _name == "게스트":
+            return False
+        # ✅ 교류전 상대(등록 roster 밖) 제외
+        if member_set is not None and _name not in member_set:
+            return False
+        return True
+
+
     for idx, (gtype, t1, t2, court) in enumerate(schedule, start=1):
         res = results.get(str(idx)) or results.get(idx) or {}
         s1 = res.get("t1")
@@ -1493,25 +1514,6 @@ def build_daily_report(sel_date, day_data):
     # 2) 오늘의 MVP (최다승 → 동률이면 득실차)
     best_wins = -1
     candidates = []
-    member_set = None
-    try:
-        global roster
-        if isinstance(roster, list):
-            member_set = {p.get('name') for p in roster}
-    except Exception:
-        member_set = None
-
-    def _is_valid_member(_name: str) -> bool:
-        _name = str(_name or "").strip()
-        if not _name:
-            return False
-        # ✅ 게스트 제외
-        if _name == "게스트":
-            return False
-        # ✅ 교류전 상대(등록 roster 밖) 제외
-        if member_set is not None and _name not in member_set:
-            return False
-        return True
 
     for name, r in recs.items():
         if r.get('G', 0) == 0:
@@ -6912,7 +6914,35 @@ def render_tab_today_session(tab):
                 unsafe_allow_html=True,
             )
 
-            # ✅ 체크된 게임 초기화
+            
+            # ✅ 전체 선택 / 전체 해제 (체크박스)
+            s_all, s_none = st.columns(2)
+            with s_all:
+                select_all_clicked = st.button(
+                    "전체 선택",
+                    use_container_width=True,
+                    key="btn_select_all_games",
+                    disabled=(len(games) == 0),
+                )
+            with s_none:
+                deselect_all_clicked = st.button(
+                    "전체 해제",
+                    use_container_width=True,
+                    key="btn_deselect_all_games",
+                    disabled=(len(games) == 0),
+                )
+
+            if select_all_clicked:
+                for (gno, rr, cc) in games:
+                    st.session_state[f"chk_game_{gno}"] = True
+                safe_rerun()
+
+            if deselect_all_clicked:
+                for (gno, rr, cc) in games:
+                    st.session_state[f"chk_game_{gno}"] = False
+                safe_rerun()
+
+# ✅ 체크된 게임 초기화
             if clear_checked_clicked and selected_games:
                 for rr, cc in selected_games:
                     if gtype == "단식":
