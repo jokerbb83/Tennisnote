@@ -423,7 +423,7 @@ def ensure_login_and_club():
         )
 
         st.markdown("#### 클럽코드 입력")
-        _in = st.text_input("클럽코드", value="", placeholder="예: MSPC, HMMC", key="first_club_code_input")
+        _in = st.text_input("클럽코드", value="", placeholder="알파벳 네자리", key="first_club_code_input")
         c1, c2 = st.columns([1, 1])
         with c1:
             apply = st.button("시작하기", use_container_width=True)
@@ -706,6 +706,19 @@ if IS_OBSERVER:
 
 st.markdown("""
 <style>
+/* ✅ Streamlit 상단 헤더/데코(파란 바) 숨김 */
+header[data-testid="stHeader"]{
+  visibility: hidden !important;
+  height: 0px !important;
+}
+[data-testid="stDecoration"]{
+  display: none !important;
+}
+[data-testid="stToolbar"]{
+  visibility: hidden !important;
+  height: 0px !important;
+}
+
 /* ✅ 상단 타이틀(로고/앱명) 위 여백 최소화 */
 [data-testid="stAppViewContainer"] .block-container{
   padding-top: 0.12rem !important;
