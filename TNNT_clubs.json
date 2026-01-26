@@ -1,4 +1,20 @@
 {
-  "HMMC": { "name": "한미모스" },
-  "MSPC": { "name": "마리아상암포바" }
+  "HMMC": {
+    "name": "한미모스",
+    "ui": {
+      "observer_score_view_selector": false
+    },
+    "defaults": {
+      "default_doubles_mode": "랜덤 복식"
+    }
+  },
+  "MSPC": {
+    "name": "마리아상암포바",
+    "ui": {
+      "observer_score_view_selector": true
+    },
+    "defaults": {
+      "default_doubles_mode": "한울 AA 방식 (4게임 고정)"
+    }
+  }
 }
