@@ -40,10 +40,10 @@ DEFAULT_CLUB_CODE = os.getenv("TNNT_DEFAULT_CLUB_CODE", "").strip()
 DEFAULT_CLUB_NAME = os.getenv("TNNT_DEFAULT_CLUB_NAME", "테스노트").strip()
 
 # ✅ 관리자(메인) 앱 타이틀(표시용)
-ADMIN_PURPOSE = "관리 도우미(Beta)"  # 예: "도우미 (Beta)"
+ADMIN_PURPOSE = "관리 도우미"  # 예: "도우미 (Beta)"
 
 # ✅ 스코어보드(읽기전용) 앱 타이틀(표시용)
-SCOREBOARD_PURPOSE = "스코어보드 (Beta)"
+SCOREBOARD_PURPOSE = "스코어보드"
 
 # ✅ 앱 모드(환경변수 호환)
 #  - "admin"(기본) / "observer"(옵저버) / "scoreboard"(스코어보드)
