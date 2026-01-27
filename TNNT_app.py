@@ -1299,6 +1299,77 @@ HANUL_AA_PATTERNS = {
     ],
 }
 
+# ---------------------------------------------------------
+# 한울 AA 시드(Seed) 배치 규칙
+#   - 인원수(n)에 따라 '시드로 고정할 수 있는 순번(자리)'가 정해짐
+#   - 사용자가 선택한 시드 선수는 '선택한 순서대로' 아래 순번에 자동 배치됨
+#   - 순번 표기: 1~9, A(10), B(11), C(12), D(13), E(14), F(15), G(16)
+# ---------------------------------------------------------
+HANUL_AA_SEED_SLOTS: dict[int, list[str]] = {
+    6: ["1", "3"],
+    7: ["1", "5"],
+    8: ["1", "7"],
+    9: ["1", "4", "8"],
+    10: ["1", "8", "A"],
+    11: ["1", "5", "8", "9"],
+    12: ["2", "3", "8", "A"],
+    13: ["1", "4", "6", "B"],
+    14: ["2", "5", "8", "C"],
+    15: ["1", "4", "5", "A", "D"],
+    16: ["1", "6", "B", "G", "7", "A"],
+}
+
+
+def _hanul_seed_token_to_index(tok: str) -> int:
+    tok = (tok or "").strip()
+    if not tok:
+        return -1
+    ch = tok[0].upper()
+    if ch.isdigit():
+        return int(ch) - 1
+    return 9 + (ord(ch) - ord("A"))
+
+
+def apply_hanul_aa_seed_order(players: list[str], seed_players: list[str]):
+    """선택된 시드를 한울 AA 순번(자리)에 배치해 players 순서를 재구성한다.
+
+    반환: (ordered_players, seed_slots_tokens)
+    - seed_slots_tokens: 예) ["1","3"] 처럼 UI/로그 출력용
+    """
+    base = list(players or [])
+    n = len(base)
+    slots = HANUL_AA_SEED_SLOTS.get(n, [])
+    if (not slots) or (not seed_players):
+        return base, slots
+
+    # ✅ seed 목록 정리(중복 제거 + 현재 선택 인원에 포함되는 것만)
+    seed_unique: list[str] = []
+    for p in (seed_players or []):
+        if (p in base) and (p not in seed_unique):
+            seed_unique.append(p)
+
+    slot_idx = [_hanul_seed_token_to_index(s) for s in slots]
+    seed_unique = seed_unique[: len(slot_idx)]
+
+    ordered: list[str | None] = [None] * n
+
+    # ✅ 시드 선수는 "선택한 순서대로" slots 순번에 고정
+    for i, si in enumerate(slot_idx):
+        if i >= len(seed_unique):
+            break
+        if 0 <= si < n:
+            ordered[si] = seed_unique[i]
+
+    # ✅ 나머지는 기존 순서대로 채우기
+    remaining = [p for p in base if p not in seed_unique]
+    for i in range(n):
+        if ordered[i] is None:
+            ordered[i] = remaining.pop(0) if remaining else base[i]
+
+    return [x for x in ordered if x is not None], slots
+
+
+
 
 def char_to_index(ch: str) -> int:
     """
@@ -6737,6 +6808,68 @@ def render_tab_today_session(tab):
                 "- 사용 코트 수는 현재 값으로 고정됩니다."
             )
 
+            # ---------------------------------------------------------
+            # ✅ 한울 AA: 시드 추가(선택 선수 고정 배치)
+            #   - 인원수에 따라 선택 가능한 시드 '최대 인원'과 '배치 순번'이 정해짐
+            # ---------------------------------------------------------
+            _aa_n = len(players_selected) if players_selected else 0
+            _aa_slots = HANUL_AA_SEED_SLOTS.get(_aa_n, [])
+
+            # 현재 인원에서 제외된 시드 자동 정리
+            _cur_seed = [p for p in (st.session_state.get("aa_seed_players", []) or []) if p in (players_selected or [])]
+            if _cur_seed != (st.session_state.get("aa_seed_players", []) or []):
+                st.session_state.aa_seed_players = _cur_seed
+
+            if _aa_slots:
+                st.checkbox(
+                    "시드 추가",
+                    value=bool(st.session_state.get("aa_seed_enabled", False)),
+                    key="aa_seed_enabled",
+                    help="선택한 선수를 지정된 순번(자리)에 고정해서 한울 AA 대진을 만들 수 있어요.",
+                )
+
+                if st.session_state.get("aa_seed_enabled", False):
+                    _slots_txt = ", ".join(_aa_slots)
+                    st.caption(
+                        f"현재 {_aa_n}명에서는 시드를 최대 {len(_aa_slots)}명까지 선택할 수 있어요. "
+                        f"(순번: {_slots_txt})\n"
+                        f"선택한 순서대로 해당 순번에 자동 배치됩니다."
+                    )
+
+                    # Streamlit 버전에 따라 max_selections 지원 유무가 달라서 방어적으로 처리
+                    try:
+                        _seeds = st.multiselect(
+                            f"시드 선수 선택 (최대 {len(_aa_slots)}명)",
+                            options=players_selected,
+                            default=_cur_seed[: len(_aa_slots)],
+                            key="aa_seed_players",
+                            max_selections=len(_aa_slots),
+                        )
+                    except TypeError:
+                        _seeds = st.multiselect(
+                            f"시드 선수 선택 (최대 {len(_aa_slots)}명)",
+                            options=players_selected,
+                            default=_cur_seed[: len(_aa_slots)],
+                            key="aa_seed_players",
+                        )
+
+                    if isinstance(_seeds, list) and len(_seeds) > len(_aa_slots):
+                        st.warning(f"시드는 최대 {len(_aa_slots)}명까지 선택할 수 있어요. 초과 선택은 자동으로 제외했어요.")
+                        _seeds = _seeds[: len(_aa_slots)]
+                        st.session_state.aa_seed_players = _seeds
+
+                    # 미리보기: "순번 -> 선수" 표시
+                    if _seeds:
+                        _preview = []
+                        for i, tok in enumerate(_aa_slots[: len(_seeds)]):
+                            _preview.append(f"{tok}번: {render_name_badge(_seeds[i], roster_by_name)}")
+                        st.markdown("**시드 배치 미리보기**  \n" + " / ".join(_preview), unsafe_allow_html=True)
+            else:
+                # 5명(또는 규칙이 없는 인원)에서는 시드 기능 비활성화
+                st.session_state.aa_seed_enabled = False
+                st.session_state.aa_seed_players = []
+                st.caption("현재 인원수에서는 시드 기능을 사용할 수 없어요(지원되는 순번 규칙이 없어요).")
+
         # =========================================================
         # 4-1. 직접 배정(수동) 입력
         # =========================================================
@@ -7542,6 +7675,11 @@ def render_tab_today_session(tab):
             # AA 모드
             if (gtype == "복식") and ("한울 AA" in str(mode_label)):
                 ordered = players_selected[:]
+                if bool(st.session_state.get("aa_seed_enabled", False)):
+                    ordered, _ = apply_hanul_aa_seed_order(
+                        players_selected,
+                        st.session_state.get("aa_seed_players", []) or [],
+                    )
                 return build_hanul_aa_schedule(ordered, int(court_count))
 
             # 일반 모드: 목표 게임수 추정
