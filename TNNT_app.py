@@ -1371,6 +1371,228 @@ def apply_hanul_aa_seed_order(players: list[str], seed_players: list[str]):
 
 
 
+# ---------------------------------------------------------
+# 토너먼트(단식) 브라켓 유틸
+# ---------------------------------------------------------
+def _next_pow2(n: int) -> int:
+    n = int(n or 0)
+    if n <= 1:
+        return 1
+    p = 1
+    while p < n:
+        p <<= 1
+    return p
+
+
+def _standard_seed_positions(size: int) -> list[int]:
+    """표준 토너먼트 시드 배치(1vs최하단, 2vs...). 반환은 '슬롯 번호(1-based)' 리스트.
+    예) size=8 -> [1, 8, 4, 5, 2, 7, 3, 6]
+    """
+    size = _next_pow2(size)
+    order = [1]
+    while len(order) < size:
+        m = len(order) * 2 + 1
+        order = [x for pair in ((x, m - x) for x in order) for x in pair]
+    return order
+
+
+def _sanitize_selectbox_key(key: str, options: list[str], default: str = "(선택)"):
+    cur = st.session_state.get(key, default)
+    if cur not in options:
+        st.session_state[key] = default
+
+
+def render_tournament_seed_ui(players_selected: list[str]):
+    """토너먼트 시드 UI: 체크 시 seed1~seedK를 선택하면, 선택 순서대로 표준 시드 슬롯에 배치."""
+    n = len(players_selected or [])
+    if n < 2:
+        return
+
+    size = _next_pow2(n)
+    rounds = int(math.log2(size)) if size > 1 else 1
+    byes = size - n
+    max_seed = min(8, n)  # UI는 최대 8명까지만(원하면 늘릴 수 있음)
+
+    # seed 슬롯(표준 배치)
+    seed_slots = _standard_seed_positions(size)[:max_seed]  # seed1..seedK가 들어갈 슬롯
+    seed_slots_str = [str(s) for s in seed_slots]
+
+    # 체크박스
+    seed_enabled = st.checkbox("시드 추가", value=bool(st.session_state.get("tourn_seed_enabled", False)), key="tourn_seed_enabled")
+
+    if not seed_enabled:
+        st.session_state["tourn_seed_players"] = []
+        return
+
+    # 안내 카드
+    st.markdown(
+        f"""
+<div style="
+  margin:0.6rem 0 0.2rem 0;
+  padding:1.0rem 1.1rem;
+  border-radius:14px;
+  background:#f8fafc;
+  border:1px solid #e2e8f0;
+">
+  <div style="font-size:1.05rem; font-weight:800; margin-bottom:0.35rem;">🏆 토너먼트 시드 지정</div>
+  <div style="color:#475569; line-height:1.6; font-size:0.95rem;">
+    현재 <b>{n}명</b> → 브라켓 <b>{size}강</b> ({rounds}라운드) / BYE <b>{byes}개</b><br/>
+    아래에서 <b>1번 시드 → 2번 시드 → ...</b> 순서대로 선택하면,
+    자동으로 <b>{', '.join(seed_slots_str)}</b> 슬롯(표준 시드 배치)에 고정 배치됩니다.
+  </div>
+</div>
+""",
+        unsafe_allow_html=True,
+    )
+
+    # 슬롯 pill
+    pills = "".join([f'<span style="display:inline-block; padding:0.35rem 0.65rem; margin:0.25rem 0.35rem 0 0; border:1px solid #cbd5e1; border-radius:999px; font-size:0.9rem; background:white;">슬롯 {s}</span>' for s in seed_slots_str])
+    st.markdown(f'<div style="margin:0.25rem 0 0.6rem 0;">{pills}</div>', unsafe_allow_html=True)
+
+    # seed selectboxes (중복 방지)
+    opts = ["(선택)"] + list(players_selected)
+    chosen: list[str] = []
+    seed_players: list[str] = []
+
+    cols = st.columns(2)
+    for i in range(max_seed):
+        key = f"tourn_seed_{i+1}"
+        _sanitize_selectbox_key(key, opts, "(선택)")
+        with cols[i % 2]:
+            picked = st.selectbox(
+                f"{i+1}번 시드 → 슬롯 {seed_slots_str[i]}",
+                opts,
+                key=key,
+            )
+        if picked != "(선택)":
+            seed_players.append(picked)
+
+    # 중복 제거: 먼저 선택된 것만 살리고 나머지는 (선택)으로 리셋
+    seen = set()
+    for i in range(max_seed):
+        key = f"tourn_seed_{i+1}"
+        val = st.session_state.get(key, "(선택)")
+        if val == "(선택)":
+            continue
+        if val in seen:
+            st.session_state[key] = "(선택)"
+        else:
+            seen.add(val)
+
+    # 최종 seed 리스트 저장(선택 순서 유지)
+    final_seed: list[str] = []
+    for i in range(max_seed):
+        v = st.session_state.get(f"tourn_seed_{i+1}", "(선택)")
+        if v != "(선택)" and v not in final_seed and (v in players_selected):
+            final_seed.append(v)
+
+    st.session_state["tourn_seed_players"] = final_seed
+
+
+def build_tournament_bracket(players: list[str], seed_players: list[str] | None = None) -> dict:
+    """단식 토너먼트 브라켓(초기 배치) 생성.
+    반환 dict:
+      - size, rounds, slots(list[str|None]), round1(list[tuple[p1,p2]]), byes, seed_slots(list[int])
+    """
+    base = list(players or [])
+    n = len(base)
+    size = _next_pow2(n)
+    rounds = int(math.log2(size)) if size > 1 else 1
+    byes = size - n
+
+    # seed 배치
+    seeds = []
+    for p in (seed_players or []):
+        if (p in base) and (p not in seeds):
+            seeds.append(p)
+
+    seed_slots_all = _standard_seed_positions(size)
+    slots: list[str | None] = [None] * size
+
+    for i, p in enumerate(seeds):
+        if i >= size:
+            break
+        slot_no = seed_slots_all[i]  # 1-based
+        slots[slot_no - 1] = p
+
+    remaining = [p for p in base if p not in seeds]
+    random.shuffle(remaining)
+
+    # 남은 슬롯 채우기 (BYE는 None)
+    for i in range(size):
+        if slots[i] is None:
+            if remaining:
+                slots[i] = remaining.pop(0)
+            else:
+                slots[i] = None
+
+    # 1R 매치업
+    round1 = []
+    for i in range(0, size, 2):
+        round1.append((slots[i], slots[i + 1]))
+
+    return {
+        "size": size,
+        "rounds": rounds,
+        "byes": byes,
+        "slots": slots,
+        "round1": round1,
+        "seed_slots": seed_slots_all[: min(len(seeds), len(seed_slots_all))],
+        "seeds": seeds,
+    }
+
+
+def tournament_bracket_to_round1_schedule(bracket: dict, court_count: int) -> list:
+    """브라켓의 1라운드 매치만 '오늘 대진표'로 변환. BYE 매치는 스킵."""
+    if not bracket:
+        return []
+    cc = max(1, int(court_count or 1))
+    sched = []
+    court = 1
+    for (p1, p2) in (bracket.get("round1") or []):
+        if (p1 is None) or (p2 is None):
+            continue
+        sched.append(("단식", [p1], [p2], int(court)))
+        court += 1
+        if court > cc:
+            court = 1
+    return sched
+
+
+def render_tournament_bracket(bracket: dict):
+    """토너먼트 브라켓을 보기 좋게 표시(초기 배치/1라운드)."""
+    if not bracket:
+        return
+
+    size = bracket.get("size", 0)
+    rounds = bracket.get("rounds", 0)
+    byes = bracket.get("byes", 0)
+    seeds = bracket.get("seeds", []) or []
+    slots = bracket.get("slots", []) or []
+
+    st.markdown("---")
+    st.subheader("🏆 토너먼트 대진표")
+
+    info = f"{size}강 / {rounds}라운드"
+    if byes:
+        info += f" · BYE {byes}개"
+    if seeds:
+        info += f" · 시드 {len(seeds)}명"
+    st.caption(info)
+
+    # 슬롯(초기 배치) 간단 리스트
+    with st.expander("초기 배치(슬롯) 보기", expanded=False):
+        for i, p in enumerate(slots, start=1):
+            st.write(f"슬롯 {i:>2}: {p if p else 'BYE'}")
+
+    st.markdown("**1라운드 매치업**")
+    r1 = bracket.get("round1") or []
+    for idx, (p1, p2) in enumerate(r1, start=1):
+        a = p1 if p1 else "BYE"
+        b = p2 if p2 else "BYE"
+        st.write(f"- 1R {idx}: {a} vs {b}")
+
+
 def char_to_index(ch: str) -> int:
     """
     한울 AA 패턴 문자열에서 문자 하나를 인덱스로 변환
@@ -6382,21 +6604,28 @@ def render_tab_today_session(tab):
         # ✅ 게임 타입: 팀별 모드 추가(표시용), 내부 gtype은 "복식/단식"만 쓰게 유지
         gtype_ui = st.radio(
             "게임 타입",
-            ["복식", "단식", "복식 팀별", "단식 팀별"],
+            ["복식", "단식", "복식 팀별", "단식 팀별", "토너먼트"],
             horizontal=True,
             key="gtype_radio",
         )
+        is_tournament = (str(gtype_ui) == "토너먼트")
         is_team_mode = ("팀별" in str(gtype_ui))
         gtype = "복식" if str(gtype_ui).startswith("복식") else "단식"  # ✅ 기존 로직 호환용(중요!)
 
-        make_mode = st.radio(
-            "대진 생성 방식",
-            ["자동 생성", "직접 배정(수동)"],
-            horizontal=True,
-            key="make_mode_radio",
-        )
-        is_manual_mode = (make_mode == "직접 배정(수동)")
-        is_team_auto_mode = (is_team_mode and (not is_manual_mode))
+        if is_tournament:
+            st.caption("🏆 토너먼트는 자동 생성만 지원합니다.")
+            make_mode = "자동 생성"
+            is_manual_mode = False
+            is_team_auto_mode = False
+        else:
+            make_mode = st.radio(
+                "대진 생성 방식",
+                ["자동 생성", "직접 배정(수동)"],
+                horizontal=True,
+                key="make_mode_radio",
+            )
+            is_manual_mode = (make_mode == "직접 배정(수동)")
+            is_team_auto_mode = (is_team_mode and (not is_manual_mode))
 
         # =========================================================
         # ✅ 팀별 모드 UI (NEW)
@@ -6644,7 +6873,9 @@ def render_tab_today_session(tab):
 
 
         auto_basis = "개인당 경기 수 기준"
-        if not is_manual_mode:
+        if is_tournament:
+            auto_basis = "토너먼트"
+        elif not is_manual_mode:
             if is_team_auto_mode:
                 auto_basis = "총 게임 수(라운드 수) 기준"
                 st.caption("팀별 모드는 '총 게임 수(라운드 수) 기준'으로 생성돼.")
@@ -6668,7 +6899,11 @@ def render_tab_today_session(tab):
         if is_team_auto_mode:
             st.info("팀별 모드는 '조별 매칭'은 비활성화돼. 대신 복식/단식 대전 방식과 NTRP 옵션은 적용돼.")
 
-        if gtype == "복식":
+        if is_tournament:
+            singles_mode = "토너먼트"
+            is_aa_mode = False
+            render_tournament_seed_ui(players_selected)
+        elif gtype == "복식":
             if is_team_auto_mode:
                 doubles_modes = [
                     "랜덤 복식",
@@ -6680,7 +6915,7 @@ def render_tab_today_session(tab):
                     doubles_modes,
                     index=0,
                     key="doubles_mode_select",
-                    disabled=False,
+                    disabled=(is_manual_mode or is_tournament),
                 )
                 is_aa_mode = False
             else:
@@ -6714,53 +6949,74 @@ def render_tab_today_session(tab):
 
         cg1, cg2 = st.columns(2)
         with cg1:
-            if is_manual_mode:
+            if is_tournament:
+                _n = len(players_selected or [])
+                _size = _next_pow2(_n)
+                _rounds = int(math.log2(_size)) if _size > 1 else 1
+
                 max_games = st.number_input(
-                    "개인당 경기 수 (수동에서는 비활성화)",
-                    min_value=1, max_value=10, value=4, step=1,
+                    "개인당 경기 수 (토너먼트에서는 사용되지 않음)",
+                    min_value=1, max_value=10, value=1, step=1,
                     disabled=True, key="max_games_input",
                 )
-            else:
-                if auto_basis != "개인당 경기 수 기준":
-                    max_games = st.number_input(
-                        "개인당 경기 수",
-                        min_value=1, max_value=10, value=4, step=1,
-                        disabled=True, key="max_games_input",
-                        help="총 게임 수(라운드 수) 기준에서는 사용되지 않습니다.",
-                    )
-                else:
-                    if gtype == "복식" and is_aa_mode:
-                        max_games = st.number_input(
-                            "개인당 경기 수 (한울 AA: 4게임 고정)",
-                            min_value=4, max_value=4, value=4, step=1,
-                            disabled=True, key="max_games_input",
-                        )
-                    else:
-                        max_games = st.number_input(
-                            "개인당 경기 수 (정확히 이 횟수로 배정)",
-                            min_value=1, max_value=10, value=4, step=1,
-                            key="max_games_input",
-                        )
 
-            total_rounds_enabled = is_manual_mode or is_team_auto_mode or (auto_basis == "총 게임 수(라운드 수) 기준")
-
-
-            if total_rounds_enabled:
                 total_rounds = st.number_input(
-                    "총 게임 수 (라운드 수)",
+                    "총 게임 수 (라운드 수) (토너먼트 자동)",
                     min_value=1, max_value=80,
-                    value=int(st.session_state.get("total_rounds_input", 4)),
-                    step=1, key="total_rounds_input",
-                    help="수동 배정 또는 자동 생성(총 게임 수 기준)일 때 입력합니다.",
+                    value=int(_rounds),
+                    step=1,
+                    disabled=True,
+                    key="total_rounds_input",
+                    help="참가 인원에 따라 자동으로 정해집니다.",
                 )
             else:
-                total_rounds = int(st.session_state.get("total_rounds_input", 2))
-                if players_selected:
-                    needed_slots = len(players_selected) * int(max_games)
-                    matches = needed_slots / unit if unit else 0
-                    court_hint = int(st.session_state.get("court_count_input", 2)) or 1
-                    rounds_hint = math.ceil(matches / court_hint) if matches else 0
-                    st.caption(f"총 게임 수(라운드 수)는 개인당 기준에서는 자동 계산됩니다. (대략 {rounds_hint} 라운드 예상)")
+                if is_manual_mode:
+                    max_games = st.number_input(
+                        "개인당 경기 수 (수동에서는 비활성화)",
+                        min_value=1, max_value=10, value=4, step=1,
+                        disabled=True, key="max_games_input",
+                    )
+                else:
+                    if auto_basis != "개인당 경기 수 기준":
+                        max_games = st.number_input(
+                            "개인당 경기 수",
+                            min_value=1, max_value=10, value=4, step=1,
+                            disabled=True, key="max_games_input",
+                            help="총 게임 수(라운드 수) 기준에서는 사용되지 않습니다.",
+                        )
+                    else:
+                        if gtype == "복식" and is_aa_mode:
+                            max_games = st.number_input(
+                                "개인당 경기 수 (한울 AA: 4게임 고정)",
+                                min_value=4, max_value=4, value=4, step=1,
+                                disabled=True, key="max_games_input",
+                            )
+                        else:
+                            max_games = st.number_input(
+                                "개인당 경기 수 (정확히 이 횟수로 배정)",
+                                min_value=1, max_value=10, value=4, step=1,
+                                key="max_games_input",
+                            )
+
+                total_rounds_enabled = is_manual_mode or is_team_auto_mode or (auto_basis == "총 게임 수(라운드 수) 기준")
+
+
+                if total_rounds_enabled:
+                    total_rounds = st.number_input(
+                        "총 게임 수 (라운드 수)",
+                        min_value=1, max_value=80,
+                        value=int(st.session_state.get("total_rounds_input", 4)),
+                        step=1, key="total_rounds_input",
+                        help="수동 배정 또는 자동 생성(총 게임 수 기준)일 때 입력합니다.",
+                    )
+                else:
+                    total_rounds = int(st.session_state.get("total_rounds_input", 2))
+                    if players_selected:
+                        needed_slots = len(players_selected) * int(max_games)
+                        matches = needed_slots / unit if unit else 0
+                        court_hint = int(st.session_state.get("court_count_input", 2)) or 1
+                        rounds_hint = math.ceil(matches / court_hint) if matches else 0
+                        st.caption(f"총 게임 수(라운드 수)는 개인당 기준에서는 자동 계산됩니다. (대략 {rounds_hint} 라운드 예상)")
 
         with cg2:
             if (gtype == "복식" and is_aa_mode and (not is_manual_mode)):
@@ -6783,7 +7039,7 @@ def render_tab_today_session(tab):
                 "NTRP 고려 (비슷한 실력끼리 매칭)",
                 value=False,
                 # ✅ 팀별에서도 활성화
-                disabled=(is_manual_mode or (gtype == "복식" and is_aa_mode)),
+                disabled=(is_manual_mode or is_tournament or (gtype == "복식" and is_aa_mode)),
                 key="use_ntrp_chk",
             )
 
@@ -6792,7 +7048,7 @@ def render_tab_today_session(tab):
                 "조별로만 매칭 (A/B조만, C조 제외)",
                 value=False,
                 # ✅ 팀별(복식팀별/단식팀별)에서는 비활성화
-                disabled=(is_manual_mode or is_team_auto_mode or (gtype == "복식" and is_aa_mode)),
+                disabled=(is_manual_mode or is_tournament or is_team_auto_mode or (gtype == "복식" and is_aa_mode)),
                 key="group_only_chk",
             )
 
@@ -7771,6 +8027,15 @@ def render_tab_today_session(tab):
             if not players_selected:
                 return []
 
+            # ✅ 토너먼트(단식) 자동 생성
+            if is_tournament:
+                seed_players = []
+                if bool(st.session_state.get("tourn_seed_enabled", False)):
+                    seed_players = st.session_state.get("tourn_seed_players", []) or []
+                bracket = build_tournament_bracket(players_selected, seed_players)
+                st.session_state["tournament_bracket"] = bracket
+                return tournament_bracket_to_round1_schedule(bracket, int(court_count))
+
             # ✅ 팀별 자동 모드: 팀 색상 기준 대진 생성 + 대전방식 + NTRP 적용 + seed
             if is_team_auto_mode:
                 team_count = int(st.session_state.get("team_count", 2))
@@ -7947,6 +8212,13 @@ def render_tab_today_session(tab):
 
 
         schedule = st.session_state.get("today_schedule", [])
+
+        # ✅ 토너먼트 브라켓 표시
+        if is_tournament:
+            _br = st.session_state.get("tournament_bracket", None)
+            if _br:
+                render_tournament_bracket(_br)
+
 
         # =========================================================
         # ✅ 대진표 수동 수정 모드
