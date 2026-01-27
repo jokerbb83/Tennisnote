@@ -6748,24 +6748,27 @@ def render_tab_today_session(tab):
             _apply_manual_pending()
 
             st.markdown("**성별 옵션**")
-            # ✅ 성별 옵션 + 코트별 커스텀(게임별) 모드
-            _gcol1, _gcol2 = st.columns([4, 1.4], vertical_alignment="center")
-            with _gcol1:
-                manual_gender_mode = st.radio(
-                    "성별 옵션",
-                    ["성별랜덤", "동성", "혼합"],
-                    horizontal=True,
-                    key="manual_gender_mode",
-                    label_visibility="collapsed",
-                )
-            with _gcol2:
-                # ✅ "혼합" 옆 커스텀 버튼(토글)
-                court_custom_on = st.toggle(
-                    "코트별 설정",
-                    value=bool(st.session_state.get("court_custom_on", False)),
-                    key="court_custom_on",
-                    help="게임(코트)별로 대진 방식을 따로 지정합니다.",
-                )
+            # ✅ 성별 옵션(전역) / 코트별 설정(커스텀)은 라디오로 한 번만 선택되도록 처리
+            manual_mode_sel = st.radio(
+                "성별 옵션",
+                ["성별랜덤", "동성", "혼합", "코트별 설정"],
+                horizontal=True,
+                key="manual_gender_mode",
+                label_visibility="collapsed",
+            )
+
+            # ✅ 코트별 설정은 '혼합'과 중복으로 켜지지 않도록(라디오 1개만 선택)
+            court_custom_on = (manual_mode_sel == "코트별 설정")
+            st.session_state["court_custom_on"] = court_custom_on
+
+            # ✅ 코트별 설정일 때도 "기본 성별 옵션"은 기억해 두고, 기본값으로 사용
+            if not court_custom_on:
+                st.session_state["manual_gender_mode_base"] = manual_mode_sel
+            manual_gender_mode = (
+                st.session_state.get("manual_gender_mode_base", "혼합")
+                if court_custom_on
+                else manual_mode_sel
+            )
 
 # ✅ 동성 세부 옵션(동성/남성/여성) — '동성'일 때만 표시
             manual_samegender_submode = "동성복식"
@@ -6943,7 +6946,22 @@ def render_tab_today_session(tab):
                                 used_by_round_base[int(rr)].add(v)
                                 base_counts[v] += 1
 
-                # ✅ (2) 여러 번 시도해서 공평성 + 제약을 만족하는 해를 찾는다.
+                
+                # ✅ (1-추가) 이미 고정된 입력 때문에 '최대 1게임 차'가 불가능한지 사전 체크
+                try:
+                    _vals0 = [int(base_counts.get(p, 0)) for p in players_selected]
+                    _min0 = min(_vals0) if _vals0 else 0
+                    _max0 = max(_vals0) if _vals0 else 0
+                    if (_max0 - _min0) > 1:
+                        st.session_state["_manual_fair_fail_reason"] = (
+                            "이미 수동으로 고정된 입력(또는 선택된 게임 외 코트) 때문에 "
+                            "인당 경기수 차이를 최대 1게임으로 맞추는 것이 불가능합니다."
+                        )
+                        return {}, set()
+                except Exception:
+                    pass
+
+# ✅ (2) 여러 번 시도해서 공평성 + 제약을 만족하는 해를 찾는다.
                 for attempt in range(MAX_RETRY):
                     rng = random.Random(int(seed_base) + attempt * 9973)
                     counts = Counter(base_counts)
@@ -7162,43 +7180,107 @@ def render_tab_today_session(tab):
                             break
 
                     if ok:
-                        return plan, auto_keys
+                        # ✅ 최종적으로도 인당 경기수 차이가 최대 1게임인지 확인
+                        try:
+                            _vals1 = [int(counts.get(p, 0)) for p in players_selected]
+                            if _vals1 and (max(_vals1) - min(_vals1) > 1):
+                                ok = False
+                            else:
+                                st.session_state["_manual_fair_fail_reason"] = None
+                                return plan, auto_keys
+                        except Exception:
+                            st.session_state["_manual_fair_fail_reason"] = None
+                            return plan, auto_keys
 
+
+                                # ✅ 실패 사유 기록: 성별 인원/모드 제약 때문에 '최대 1게임 차' 배정이 불가능할 수 있습니다.
+                reason = None
+                try:
+                    men_players = [p for p in players_selected if _gender_of(p) == "남"]
+                    women_players = [p for p in players_selected if _gender_of(p) == "여"]
+                    M, F = len(men_players), len(women_players)
+
+                    # 이번 실행에서 실제로 채우려는 슬롯 수(빈칸 + 자동 슬롯 교체)
+                    fill_slots = 0
+                    strict_m = 0
+                    strict_f = 0
+
+                    for rr in range(1, int(total_rounds) + 1):
+                        for cc in range(1, int(court_count) + 1):
+                            if not _is_target(rr, cc):
+                                continue
+
+                            mode = _desired_mode_for_game(rr, cc, court_count)
+
+                            # 게임(코트) 단위로 요구되는 성별 슬롯(엄격 모드만 하한으로 계산)
+                            if gtype == "복식":
+                                if mode == "혼합복식":
+                                    strict_m += 2
+                                    strict_f += 2
+                                elif mode == "남성복식":
+                                    strict_m += 4
+                                elif mode == "여성복식":
+                                    strict_f += 4
+                            else:
+                                # 단식: 2명
+                                if mode == "남성복식":
+                                    strict_m += 2
+                                elif mode == "여성복식":
+                                    strict_f += 2
+
+                            # 실제 교체/채우기 대상 슬롯 수
+                            if gtype == "단식":
+                                ks2 = [_manual_key(rr, cc, 1, gtype), _manual_key(rr, cc, 2, gtype)]
+                            else:
+                                ks2 = [_manual_key(rr, cc, i, gtype) for i in (1, 2, 3, 4)]
+                            for k in ks2:
+                                v = _get_manual_value(k)
+                                if (v == "선택") or _is_auto_slot(k):
+                                    fill_slots += 1
+
+                    total_slots_after = int(sum(base_counts.values())) + int(fill_slots)
+                    N = max(1, len(players_selected))
+                    t = total_slots_after // N
+                    r = total_slots_after % N
+                    max_per = t + (1 if r else 0)
+
+                    # 엄격 하한이 성별 최대 수용치를 넘으면 사실상 불가능
+                    if (M == 0 and strict_m > 0) or (F == 0 and strict_f > 0):
+                        reason = "선택한 대진 방식에서 요구하는 성별 조합을 만족할 수 있는 인원이 부족해서, 인당 경기수 차이를 최대 1게임으로 맞출 수 없습니다."
+                    elif (M > 0 and strict_m > M * max_per) or (F > 0 and strict_f > F * max_per):
+                        reason = (
+                            "참가자 성별 인원수와 선택한 대진 방식(혼합/남성/여성 등) 제약 때문에, "
+                            "인당 경기수 차이를 최대 1게임으로 맞추는 배정이 불가능합니다."
+                        )
+                except Exception:
+                    reason = None
+
+                if not reason:
+                    reason = (
+                        "현재 선택한 조건(성별/코트별 방식/라운드 내 중복 방지/NTRP 등)에서 "
+                        "인당 경기수 차이를 최대 1게임으로 맞추는 배정을 찾지 못했습니다. "
+                        "옵션을 완화하거나(코트/라운드/대진 방식) 인원을 조정해 주세요."
+                    )
+
+                st.session_state["_manual_fair_fail_reason"] = reason
                 return {}, set()
             if fill_all_clicked and players_selected:
                 # ✅ 버튼 누를 때마다 결과가 달라지게
                 seed_base = int(random.random() * 1_000_000_000)
                 st.session_state["_manual_fill_seed"] = seed_base
+                st.session_state["_manual_fair_fail_reason"] = None
 
-                plan_all = {}
-                auto_all = set()
-
-                if court_custom_on:
-                    # ✅ 코트별 타입 + 공평성(최대 1게임 차) 적용
-                    plan_all, auto_all = _fill_manual_fair(target_by_round=None, seed_base=seed_base)
-                else:
-                    # ✅ 기존 전역 성별 옵션 로직 유지
-                    gm = _manual_gender_to_mode(manual_gender_mode)
-
-                    for rr in range(1, int(total_rounds) + 1):
-                        plan_r, auto_r = _fill_round_plan(
-                            r=rr,
-                            players_selected=players_selected,
-                            court_count=court_count,
-                            gtype=gtype,
-                            view_mode=view_mode_for_schedule,
-                            gender_mode=gm,
-                            ntrp_on=bool(manual_fill_ntrp),
-                            seed_base=seed_base,
-                            same_gender_submode=(manual_samegender_submode if gm == "동성" else None),
-                        )
-                        plan_all.update(plan_r)
-                        auto_all |= set(auto_r or [])
+                # ✅ (전체/체크 여부와 무관하게) 공평성(최대 1게임 차) + 성별/코트별 제약을 항상 적용
+                plan_all, auto_all = _fill_manual_fair(target_by_round=None, seed_base=seed_base)
 
                 if plan_all:
                     _apply_plan_to_state(plan_all, auto_all)
                 else:
-                    st.info("이미 채울 빈칸이 없습니다.")
+                    reason = st.session_state.get("_manual_fair_fail_reason")
+                    if reason:
+                        st.warning(reason)
+                    else:
+                        st.info("이미 채울 빈칸이 없습니다.")
 
             # ✅ 게임 UI (라운드 구분 없이 나열 + 체크된 게임만 처리)
             # -------------------------
@@ -7297,42 +7379,24 @@ def render_tab_today_session(tab):
                 # ✅ 버튼 누를 때마다 결과가 달라지게
                 seed_base = int(random.random() * 1_000_000_000)
                 st.session_state["_manual_fill_seed"] = seed_base
+                st.session_state["_manual_fair_fail_reason"] = None
 
                 # 라운드별로 묶어서, 체크된 코트만 채우기 (라운드 내 중복 방지 유지)
                 by_round = {}
                 for rr, cc in selected_games:
                     by_round.setdefault(int(rr), []).append(int(cc))
 
-                plan_all = {}
-                auto_all = set()
-
-                if court_custom_on:
-                    # ✅ 코트별 타입 + 공평성(최대 1게임 차) 적용
-                    plan_all, auto_all = _fill_manual_fair(target_by_round=by_round, seed_base=seed_base)
-                else:
-                    # ✅ 기존 전역 성별 옵션 로직 유지
-                    gm = _manual_gender_to_mode(manual_gender_mode)
-
-                    for rr, c_list in by_round.items():
-                        plan_r, auto_r = _fill_round_plan(
-                            r=int(rr),
-                            players_selected=players_selected,
-                            court_count=court_count,
-                            gtype=gtype,
-                            view_mode=view_mode_for_schedule,
-                            gender_mode=gm,
-                            ntrp_on=bool(manual_fill_ntrp),
-                            target_courts=c_list,
-                            seed_base=seed_base,
-                            same_gender_submode=(manual_samegender_submode if gm == "동성" else None),
-                        )
-                        plan_all.update(plan_r)
-                        auto_all |= set(auto_r or [])
+                # ✅ 공평성(최대 1게임 차) + 성별/코트별 제약을 항상 적용
+                plan_all, auto_all = _fill_manual_fair(target_by_round=by_round, seed_base=seed_base)
 
                 if plan_all:
                     _apply_plan_to_state(plan_all, auto_all)
                 else:
-                    st.info("체크된 게임에서 채울 빈칸이 없습니다.")
+                    reason = st.session_state.get("_manual_fair_fail_reason")
+                    if reason:
+                        st.warning(reason)
+                    else:
+                        st.info("체크된 게임에서 채울 빈칸이 없습니다.")
 
             st.markdown("<div style='height:0.4rem;'></div>", unsafe_allow_html=True)
 
@@ -7862,6 +7926,21 @@ def render_tab_today_session(tab):
 
             st.markdown("### 👤 인당 경기수")
             cnt = count_player_games(schedule)
+
+            # ✅ 공평성 안내: 인당 경기수 차이는 최대 1게임이 되도록 시도합니다.
+            try:
+                _vals = [int(cnt.get(p, 0)) for p in players_selected]
+                if _vals:
+                    _diff = max(_vals) - min(_vals)
+                    if _diff > 1:
+                        _reason = st.session_state.get("_manual_fair_fail_reason")
+                        if _reason:
+                            st.warning(f"⚠️ 현재 인당 경기수 차이가 {_diff}게임입니다. {_reason}")
+                        else:
+                            st.warning(f"⚠️ 현재 인당 경기수 차이가 {_diff}게임입니다. (인원/성별/옵션 제약으로 공평하게 맞추기 어려울 수 있어요)")
+            except Exception:
+                pass
+
             by_games = defaultdict(list)
             for p in players_selected:
                 by_games[int(cnt.get(p, 0))].append(p)
