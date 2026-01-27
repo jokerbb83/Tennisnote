@@ -23,6 +23,681 @@ import io
 from PIL import Image
 
 
+
+# =========================================================
+# ✅ 스타일/CSS 주입 최적화 (중복 주입 방지)
+#   - B안: 필요한 탭/구간에서만 호출하되, rerun마다 재주입되지 않게 1회만 주입
+# =========================================================
+STYLES_CONSTANTS = {
+    "MOBILE_LANDSCAPE": r"""
+<style>
+
+/* 📱 모바일 가로 화면 전용 */
+@media screen and (max-width: 768px) and (orientation: landscape) {
+
+    /* 전체 컨테이너 여백 최소화 */
+    .block-container {
+        padding-left: 0.35rem !important;
+        padding-right: 0.35rem !important;
+        padding-top: 0.12rem !important;
+        padding-bottom: 0.4rem !important;
+    }
+
+    /* 제목 폰트 더 축소 */
+    h1 { font-size: 1.05rem !important; margin-bottom: 0.35rem !important; }
+    h2 { font-size: 0.95rem !important; }
+    h3, h4 { font-size: 0.85rem !important; }
+
+    /* 일반 텍스트 */
+    p, span, label, div {
+        font-size: 0.78rem !important;
+    }
+
+    /* Selectbox / TextInput 높이 줄이기 */
+    div[data-baseweb="select"] {
+        font-size: 0.78rem !important;
+        min-height: 1.65rem !important;
+        padding-top: 0.05rem !important;
+        padding-bottom: 0.05rem !important;
+    }
+
+    /* 점수 Select 글씨 */
+    div.stSelectbox > label {
+        font-size: 0.72rem !important;
+    }
+
+    /* 🔽 표 데이터프레임 폰트 & 패딩 축소 */
+    [data-testid="stDataFrame"] table {
+        font-size: 0.65rem !important;
+    }
+
+    [data-testid="stDataFrame"] table td,
+    [data-testid="stDataFrame"] table th {
+        padding: 2px 3px !important;
+    }
+
+    [data-testid="stDataFrame"] div[role="row"] {
+        min-height: 14px !important;
+    }
+
+    /* 버튼 */
+    div[data-testid="stButton"] > button {
+        font-size: 0.80rem !important;
+        padding-top: 0.50rem !important;
+        padding-bottom: 0.50rem !important;
+        margin-top: 0.2rem !important;
+        margin-bottom: 0.2rem !important;
+    }
+
+    /* 멀티셀렉트 박스 */
+    .stMultiSelect div[data-baseweb="tag"] {
+        font-size: 0.70rem !important;
+        padding: 1px 4px !important;
+    }
+}
+</style>
+""",
+    "MOBILE_CSS": r"""
+<style>
+/* 전체 패딩 줄이기 */
+.block-container {
+    padding-top: 0.12rem !important;
+    padding-bottom: 1.5rem;
+    padding-left: 0.9rem;
+    padding-right: 0.9rem;
+}
+
+/* 이름 뱃지 기본 색상(다크모드에서도 검은 글씨 유지) */
+.name-badge {
+    color: #111111 !important;
+    white-space: nowrap;
+}
+
+/* 작은 화면용 최적화 */
+@media (max-width: 768px) {
+
+    .block-container {
+        padding-left: 0.6rem;
+        padding-right: 0.6rem;
+    }
+
+    h1 {
+        font-size: 1.4rem;
+        margin-bottom: 0.7rem;
+    }
+
+    h2 {
+        font-size: 1.15rem;
+        margin-bottom: 0.5rem;
+    }
+
+    h3 {
+        font-size: 1.0rem;
+        margin-bottom: 0.4rem;
+    }
+
+    /* 탭 버튼들 한 줄에 너무 꽉 차지 않게 */
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 0.15rem;
+        flex-wrap: wrap;
+    }
+    .stTabs [role="tab"] {
+        font-size: 0.8rem;
+        padding: 0.2rem 0.45rem;
+    }
+
+    /* 데이터프레임 스크롤 영역 조금 낮게 */
+    .stDataFrame {
+        font-size: 0.8rem;
+    }
+
+    /* 모바일에서 이름 뱃지 살짝 작게 */
+    .name-badge {
+        font-size: 0.8rem !important;
+        padding: 2px 6px !important;
+    }
+}
+</style>
+""",
+    "MOBILE_SCORE_ROW_CSS": r"""
+<style>
+/* 모바일에서 점수 입력 행(라디오+점수)을 한 줄(가로)로 최대한 유지 */
+@media (max-width: 768px) {
+
+    /* ✅ Streamlit columns 래퍼가 자동으로 줄바꿈(wrap)되는 걸 방지 */
+    .score-row [data-testid="stHorizontalBlock"] {
+        flex-wrap: nowrap !important;
+        gap: 0.25rem !important;
+        align-items: center !important;
+    }
+
+    /* 각 column 패딩 축소 */
+    .score-row [data-testid="column"] {
+        padding-left: 0.08rem !important;
+        padding-right: 0.08rem !important;
+    }
+
+    /* 드롭다운(점수) 더 컴팩트 */
+    .score-row [data-baseweb="select"] {
+        min-width: 2.7rem !important;
+        max-width: 3.2rem !important;
+        font-size: 0.78rem !important;
+    }
+
+    /* 라디오(사이드 선택) 줄간격/패딩 축소 */
+    .score-row div[role="radiogroup"] label {
+        margin: 0 !important;
+        padding: 0.10rem 0 !important;
+        line-height: 1.05 !important;
+    }
+
+    /* 이름 배지/텍스트 살짝 축소 */
+    .score-row .name-badge,
+    .score-row span {
+        font-size: 0.80rem !important;
+    }
+}
+</style>
+""",
+    "BUTTON_CSS_BASE": r"""
+<style>
+/* =========================================================
+   ✅ 버튼 컬러 팔레트 (4종)
+   - 기본: 민트
+   - marker(div class=main-*-btn) 바로 다음에 오는 st.button을 색상 오버라이드
+     * main-primary-btn   : 민트
+     * main-danger-btn    : 빨강
+     * main-secondary-btn : 파랑
+     * main-warning-btn   : 주황
+   ---------------------------------------------------------
+   ⚠️ Streamlit은 markdown HTML이 위젯을 "감싸지" 못해서
+      (div로 래핑해도) 스타일이 안 먹는 경우가 많아.
+      그래서 :has() + 인접 형제 선택자로 "마커 다음 버튼"을 잡는다.
+   ========================================================= */
+
+:root{
+  --btn-mint:#5fcdb2;
+  --btn-mint-hover:#55c4aa;
+
+  --btn-red:#ef4444;
+  --btn-red-hover:#dc2626;
+
+  --btn-blue:#13baff;
+  --btn-blue-hover:#2563eb;
+
+  --btn-orange:#f59e0b;
+  --btn-orange-hover:#d97706;
+
+  --btn-radius:14px;
+  --btn-height:56px;
+}
+
+/* ✅ 기본(민트) */
+div[data-testid="stButton"] > button{
+  background-color: var(--btn-mint) !important;
+  color:#fff !important;
+  border:1px solid var(--btn-mint) !important;
+  font-weight:700 !important;
+  border-radius:var(--btn-radius) !important;
+  height:var(--btn-height) !important;
+  box-shadow:0 8px 18px rgba(95,205,178,0.22) !important;
+  filter:none !important;
+}
+div[data-testid="stButton"] > button:hover{
+  background-color: var(--btn-mint-hover) !important;
+  border-color: var(--btn-mint-hover) !important;
+  filter:none !important;
+}
+div[data-testid="stButton"] > button:active{
+  transform: translateY(1px);
+}
+div[data-testid="stButton"] > button:focus{
+  outline:none !important;
+  box-shadow:0 0 0 4px rgba(95,205,178,0.25) !important;
+}
+
+/* ---------------------------------------------------------
+   ✅ "마커 다음 버튼" 컬러 오버라이드 (Streamlit DOM 대응)
+   - 최신: div[data-testid="stElementContainer"]
+   - 구버전: div.element-container
+   --------------------------------------------------------- */
+
+/* 민트(명시) */
+div[data-testid="stElementContainer"]:has(.main-primary-btn) + div[data-testid="stElementContainer"] div[data-testid="stButton"] > button,
+div.element-container:has(.main-primary-btn) + div.element-container div[data-testid="stButton"] > button{
+  background-color: var(--btn-mint) !important;
+  border-color: var(--btn-mint) !important;
+  box-shadow:0 8px 18px rgba(95,205,178,0.22) !important;
+}
+/* 빨강 */
+div[data-testid="stElementContainer"]:has(.main-danger-btn) + div[data-testid="stElementContainer"] div[data-testid="stButton"] > button,
+div.element-container:has(.main-danger-btn) + div.element-container div[data-testid="stButton"] > button{
+  background-color: var(--btn-red) !important;
+  border-color: var(--btn-red) !important;
+  box-shadow:0 8px 18px rgba(239,68,68,0.18) !important;
+}
+/* 파랑 */
+div[data-testid="stElementContainer"]:has(.main-secondary-btn) + div[data-testid="stElementContainer"] div[data-testid="stButton"] > button,
+div.element-container:has(.main-secondary-btn) + div.element-container div[data-testid="stButton"] > button{
+  background-color: var(--btn-blue) !important;
+  border-color: var(--btn-blue) !important;
+  box-shadow:0 8px 18px rgba(19,186,255,0.18) !important;
+}
+/* 주황 */
+div[data-testid="stElementContainer"]:has(.main-warning-btn) + div[data-testid="stElementContainer"] div[data-testid="stButton"] > button,
+div.element-container:has(.main-warning-btn) + div.element-container div[data-testid="stButton"] > button{
+  background-color: var(--btn-orange) !important;
+  border-color: var(--btn-orange) !important;
+  box-shadow:0 8px 18px rgba(245,158,11,0.18) !important;
+}
+
+/* hover */
+/* 민트 hover */
+div[data-testid="stElementContainer"]:has(.main-primary-btn) + div[data-testid="stElementContainer"] div[data-testid="stButton"] > button:hover,
+div.element-container:has(.main-primary-btn) + div.element-container div[data-testid="stButton"] > button:hover{
+  background-color: var(--btn-mint-hover) !important;
+  border-color: var(--btn-mint-hover) !important;
+}
+/* 빨강 hover */
+div[data-testid="stElementContainer"]:has(.main-danger-btn) + div[data-testid="stElementContainer"] div[data-testid="stButton"] > button:hover,
+div.element-container:has(.main-danger-btn) + div.element-container div[data-testid="stButton"] > button:hover{
+  background-color: var(--btn-red-hover) !important;
+  border-color: var(--btn-red-hover) !important;
+}
+/* 파랑 hover */
+div[data-testid="stElementContainer"]:has(.main-secondary-btn) + div[data-testid="stElementContainer"] div[data-testid="stButton"] > button:hover,
+div.element-container:has(.main-secondary-btn) + div.element-container div[data-testid="stButton"] > button:hover{
+  background-color: var(--btn-blue-hover) !important;
+  border-color: var(--btn-blue-hover) !important;
+}
+/* 주황 hover */
+div[data-testid="stElementContainer"]:has(.main-warning-btn) + div[data-testid="stElementContainer"] div[data-testid="stButton"] > button:hover,
+div.element-container:has(.main-warning-btn) + div.element-container div[data-testid="stButton"] > button:hover{
+  background-color: var(--btn-orange-hover) !important;
+  border-color: var(--btn-orange-hover) !important;
+}
+
+/* ✅ 모바일 버튼 크기 살짝 조정 */
+@media (max-width: 768px) {
+  div[data-testid="stButton"] > button {
+    font-size: 0.95rem !important;
+    padding-top: 0.6rem !important;
+    padding-bottom: 0.6rem !important;
+  }
+}
+</style>
+""",
+    "OBSERVER_FIXED_WIDTH": r"""
+    <style>
+    /* ✅ wide에서도 본문 폭 고정 */
+    [data-testid="stMainBlockContainer"],
+    [data-testid="stMainBlockContainer"] .block-container,
+    [data-testid="stAppViewContainer"] .main .block-container,
+    [data-testid="stAppViewContainer"] section.main .block-container,
+    section.main .block-container,
+    .main .block-container,
+    .block-container{
+      max-width: 720px !important;
+      width: 100% !important;
+      padding-left: 1.2rem !important;
+      padding-right: 1.2rem !important;
+      margin-left: auto !important;
+      margin-right: auto !important;
+    }
+    </style>
+    """,
+    "CHROME_HIDE": r"""<style>
+/* ✅ Streamlit 상단 헤더/데코(파란 바/여백) 완전 제거 */
+header[data-testid="stHeader"],
+div[data-testid="stHeader"]{
+  display: none !important;
+  height: 0 !important;
+}
+div[data-testid="stToolbar"]{
+  display: none !important;
+  height: 0 !important;
+}
+div[data-testid="stDecoration"],
+[data-testid="stDecoration"]{
+  display: none !important;
+  height: 0 !important;
+}
+
+/* ✅ 'header를 숨겨도 남는' 상단 패딩/마진까지 제거 */
+[data-testid="stAppViewContainer"],
+[data-testid="stAppViewContainer"] > .main,
+[data-testid="stAppViewContainer"] .main,
+section.main{
+  padding-top: 0 !important;
+  margin-top: 0 !important;
+}
+
+/* ✅ 상단 타이틀(로고/앱명) 위 여백 최소화 */
+[data-testid="stAppViewContainer"] .block-container,
+.block-container{
+  padding-top: 0.10rem !important;
+}
+[data-testid="stAppViewContainer"] h1{
+  margin-top: 0rem !important;
+  margin-bottom: 0.45rem !important;
+}
+@media (max-width: 900px){
+  [data-testid="stAppViewContainer"] .block-container{
+    padding-top: 0.08rem !important;
+  }
+  [data-testid="stAppViewContainer"] h1{
+    margin-top: 0rem !important;
+    margin-bottom: 0.35rem !important;
+  }
+}
+
+.msc-scroll-x{
+  width:100%;
+  overflow-x:auto;
+  -webkit-overflow-scrolling:touch;
+}
+.msc-scroll-x { padding-bottom: 6px; }
+.msc-scroll-x table{
+  width:max-content;
+  min-width:100%;
+}
+.msc-scroll-x th, .msc-scroll-x td{
+  white-space:nowrap;
+}
+
+.msc-gamehead{display:flex; align-items:center; justify-content:flex-start; gap:10px; flex-wrap:wrap;}
+.msc-chip-wrap{display:flex; align-items:center; justify-content:flex-start; gap:6px; flex-wrap:wrap;}
+.msc-vs{display:inline-block; margin:0 6px; font-weight:900; font-size:0.78rem; color:#6b7280;}
+.msc-chip{display:inline-block; padding:2px 6px; border-radius:999px; font-size:0.78rem; font-weight:800; line-height:1;}
+.msc-chip-m{background:#dbeafe; color:#1e40af;}
+.msc-chip-f{background:#ffe4e6; color:#be123c;}
+.msc-chip-u{background:#e5e7eb; color:#374151;}
+.msc-round-divider{border-top:2px solid #e5e7eb; margin:0.8rem 0 0.55rem 0;}
+
+
+
+/* ✅ (Streamlit Cloud) 남는 최상단 '빈 띠'까지 더 줄이기
+   - header/decoration을 숨겨도 main 영역이 아래로 밀려있을 때가 있어
+   - 아래는 main 컨테이너를 살짝 위로 당겨서 여백을 사실상 0에 가깝게 만든다 */
+:root{
+  --tnnt-top-shift: 2.6rem;   /* 필요하면 2.0~3.2 사이로 조절 */
+}
+[data-testid="stAppViewContainer"] > .main,
+[data-testid="stAppViewContainer"] .main,
+section.main{
+  margin-top: calc(-1 * var(--tnnt-top-shift)) !important;
+}
+@media (max-width: 768px){
+  :root{ --tnnt-top-shift: 2.2rem; }
+}
+
+/* ✅ st.title/h1 자체 여백도 최소화 */
+[data-testid="stAppViewContainer"] h1,
+[data-testid="stAppViewContainer"] .stTitle,
+[data-testid="stAppViewContainer"] .stHeading{
+  margin-top: 0 !important;
+  padding-top: 0 !important;
+}
+
+/* Streamlit 기본 메뉴/헤더/푸터 숨김 */
+#MainMenu {visibility: hidden;}
+/* ✅ 상단 헤더/푸터 영역 자체를 제거해서 위쪽 여백도 같이 제거 */
+header, footer {visibility: hidden; height: 0 !important;}
+[data-testid="stHeader"] {display: none !important; height: 0 !important;}
+[data-testid="stAppViewContainer"] > header {display: none !important; height: 0 !important;}
+[data-testid="stFooter"] {display: none !important; height: 0 !important;}
+
+/* 상단 툴바/장식/상태 아이콘 숨김 */
+div[data-testid="stToolbar"] {visibility: hidden !important; height: 0 !important;}
+div[data-testid="stDecoration"] {visibility: hidden !important; height: 0 !important;}
+div[data-testid="stStatusWidget"] {visibility: hidden !important; height: 0 !important;}
+.stDeployButton {display: none !important;}
+</style>
+""",
+    "SCHEDULE_ONE_LINE": r"""
+<style>
+/* ✅ 대진표 한줄 고정 + 가로 스크롤 */
+.msa-game-row{
+  display:flex;
+  flex-wrap:nowrap;
+  align-items:center;
+  gap:10px;
+  margin:10px 0;
+}
+.msa-game-meta{
+  flex:0 0 auto;
+  white-space:nowrap;
+  font-weight:600;
+}
+.msa-game-line{
+  flex:1 1 auto;
+  white-space:nowrap;          /* 줄바꿈 금지 */
+  overflow-x:auto;             /* 넘치면 가로 스크롤 */
+  -webkit-overflow-scrolling:touch;
+  padding-bottom:2px;
+}
+.msa-game-line b{ white-space:nowrap; }
+
+.msa-round-divider{
+  border-top:1px solid rgba(148,163,184,0.55);
+  margin:14px 0;
+}
+
+
+/* ✅ 모바일: 점수 입력 row(라디오+점수+VS+점수+라디오) 한줄 고정 */
+.msa-score-row-hb{
+  flex-wrap: nowrap !important;
+  gap: 8px !important;
+}
+.msa-score-row-hb > div[data-testid="column"]{
+  min-width: 0 !important;
+}
+/* 점수 selectbox 폭 압축 */
+.msa-score-row-hb [data-testid="stSelectbox"],
+.msa-score-row-hb div[data-baseweb="select"]{
+  min-width: 72px !important;
+}
+.msa-score-row-hb [data-baseweb="select"] > div{
+  min-height: 40px !important;
+}
+/* 라디오 영역 너무 넓어지지 않게 */
+.msa-score-row-hb [data-testid="stRadio"]{
+  min-width: 0 !important;
+}
+
+
+/* ✅ 모바일: 4-1 수동배정 버튼 2개(전체/체크)도 한줄 고정 */
+@media (max-width: 900px){
+  /* Streamlit이 모바일에서 컬럼을 100% 폭으로 스택 처리함 → nowrap만 걸면 100%+100%가 옆으로 튐
+     그래서 이 줄(클래스 부여된 stHorizontalBlock)만 컬럼 폭을 강제로 50%로 축소 */
+  div[data-testid="stHorizontalBlock"].msc-no-wrap-hb{
+    flex-wrap: nowrap !important;
+    gap: 12px !important;
+    align-items: stretch !important;
+  }
+  /* 컬럼 wrapper(테스트 id가 버전마다 다를 수 있어 넓게 잡음) */
+  div[data-testid="stHorizontalBlock"].msc-no-wrap-hb > div{
+    flex: 1 1 0 !important;
+    width: 0 !important;          /* ✅ 핵심: 모바일에서 100%로 고정되는 폭을 무력화 */
+    min-width: 0 !important;
+    max-width: none !important;
+  }
+  /* 내부 컨테이너는 100%로 */
+  div[data-testid="stHorizontalBlock"].msc-no-wrap-hb > div > div{
+    width: 100% !important;
+  }
+  /* 버튼 자체도 모바일에서 살짝 컴팩트하게 (한눈에 들어오게) */
+  div[data-testid="stHorizontalBlock"].msc-no-wrap-hb button{
+    width: 100% !important;
+    min-height: 54px !important;
+    height: auto !important;
+    padding: 0.55rem 0.65rem !important;
+    font-size: 0.95rem !important;
+    line-height: 1.15 !important;
+    white-space: normal !important;   /* 글자 길면 2줄 허용(가로 넘침 방지) */
+    word-break: keep-all !important;
+  }
+}
+</style>
+""",
+    "SCOREBOARD_TAB_ACCENT": r"""
+<style>
+/* 선택된 탭 텍스트/언더라인 색상 */
+.stTabs [role="tab"][aria-selected="true"]{
+  color:#6d28d9 !important;
+}
+.stTabs [data-baseweb="tab-highlight"]{
+  background-color:#6d28d9 !important;
+}
+</style>
+""",
+    "MOBILE_TABLE_WRAP": r"""
+            <style>
+            .mobile-table-wrap table {
+                width: 100% !important;
+                border-collapse: collapse !important;
+                table-layout: auto !important;
+                font-size: 0.78rem !important;
+            }
+            .mobile-table-wrap th,
+            .mobile-table-wrap td {
+                padding: 0.22rem 0.35rem !important;
+                white-space: nowrap !important;
+                word-break: keep-all !important;
+                vertical-align: middle !important;
+            }
+            .mobile-table-wrap thead th {
+                font-weight: 800 !important;
+            }
+            </style>
+            """,
+    "SEED_CARD": r"""
+<style>
+.tnnt-seed-card{
+  border:1px solid rgba(148,163,184,0.35);
+  background: rgba(248,250,252,0.9);
+  padding: 14px 14px 12px 14px;
+  border-radius: 14px;
+  margin-top: 10px;
+  margin-bottom: 10px;
+}
+.tnnt-seed-title{
+  font-weight:800;
+  font-size:1.02rem;
+  margin-bottom:6px;
+}
+.tnnt-seed-desc{
+  color:#475569;
+  font-size:0.92rem;
+  line-height:1.35;
+  margin-bottom:10px;
+}
+.tnnt-seed-chips{
+  display:flex;
+  flex-wrap:wrap;
+  gap:6px;
+  margin-top:6px;
+}
+.tnnt-seed-chip{
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  padding:4px 10px;
+  border-radius:999px;
+  border:1px solid rgba(148,163,184,0.45);
+  background: rgba(255,255,255,0.85);
+  font-weight:700;
+  font-size:0.88rem;
+  color:#0f172a;
+}
+.tnnt-seed-chip small{
+  font-weight:800;
+  color:#334155;
+  opacity:0.9;
+}
+.tnnt-seed-preview{
+  margin-top:10px;
+  padding:10px 12px;
+  border-radius:12px;
+  border:1px dashed rgba(148,163,184,0.6);
+  background: rgba(255,255,255,0.75);
+  font-size:0.93rem;
+  line-height:1.45;
+}
+.tnnt-seed-preview b{ font-weight:800; }
+</style>
+                    """,
+}
+
+
+def _ensure_injected_styles_set():
+    if "_injected_styles" not in st.session_state or not isinstance(st.session_state.get("_injected_styles"), set):
+        st.session_state["_injected_styles"] = set()
+
+def inject_style_once(name: str):
+    _ensure_injected_styles_set()
+    if name in st.session_state["_injected_styles"]:
+        return
+    css = STYLES_CONSTANTS.get(name)
+    if css:
+        st.markdown(css, unsafe_allow_html=True)
+    st.session_state["_injected_styles"].add(name)
+
+def inject_css_once(key: str, css_text: str):
+    _ensure_injected_styles_set()
+    k = "CSS::" + str(key)
+    if k in st.session_state["_injected_styles"]:
+        return
+    if css_text:
+        st.markdown(css_text, unsafe_allow_html=True)
+    st.session_state["_injected_styles"].add(k)
+
+# =========================================================
+# ✅ 세션 상태 초기화 일원화
+#   - 여기에는 "항상 존재해야 하는" 키만 둡니다. (런타임 의존 값은 각 로직에서 설정)
+# =========================================================
+def init_session_state():
+    defaults = {
+        "_injected_styles": set(),
+        "_stats_cache": {},
+        "_io_cache": {},
+    }
+    for k, v in defaults.items():
+        if k not in st.session_state:
+            st.session_state[k] = v
+
+# =========================================================
+# ✅ Streamlit 호환 래퍼 (deprecated API 우선 교체)
+# =========================================================
+def safe_rerun():
+    if hasattr(st, "rerun"):
+        st.rerun()
+    elif hasattr(st, "experimental_rerun"):
+        safe_rerun()
+
+def get_query_params() -> dict:
+    try:
+        return dict(st.query_params)
+    except Exception:
+        try:
+            return get_query_params()
+        except Exception:
+            return {}
+
+def set_query_params(**kwargs):
+    try:
+        for k, v in kwargs.items():
+            if v is None:
+                if k in st.query_params:
+                    del st.query_params[k]
+            else:
+                st.query_params[k] = str(v)
+    except Exception:
+        try:
+            set_query_params(**kwargs)
+        except Exception:
+            pass
+
 # =========================================================
 # ✅ 멀티 동호회 + 로그인(구글/이메일) + 클럽코드
 #   - (1) 구글 로그인(가능하면 st.experimental_user 사용)
@@ -288,7 +963,7 @@ def _get_query_param_value(key: str):
         return v
     except Exception:
         try:
-            qp = st.experimental_get_query_params()
+            qp = get_query_params()
             v = qp.get(key, [None])
             return v[0] if isinstance(v, list) else v
         except Exception:
@@ -310,7 +985,7 @@ def _set_query_params_safely(**kwargs):
         else:
             # experimental_set_query_params는 넘겨준 값만 남길 수 있어서,
             # 가능한 한 기존 값을 보존하려고 읽어온 뒤 merge한다.
-            cur = st.experimental_get_query_params()
+            cur = get_query_params()
             merged = {}
             for k, vv in (cur or {}).items():
                 if isinstance(vv, list) and vv:
@@ -322,7 +997,7 @@ def _set_query_params_safely(**kwargs):
                     merged.pop(k, None)
                 else:
                     merged[k] = v
-            st.experimental_set_query_params(**merged)
+            set_query_params(**merged)
     except Exception:
         pass
 
@@ -603,6 +1278,9 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
+# ✅ 공통 세션 초기화(최초 1회)
+init_session_state()
+
 
 
 # ---------------------------------------------------------
@@ -621,7 +1299,7 @@ def _get_query_param(key: str):
         return v
     except Exception:
         try:
-            qp = st.experimental_get_query_params()
+            qp = get_query_params()
             v = qp.get(key, [None])
             return v[0] if isinstance(v, list) else v
         except Exception:
@@ -684,128 +1362,9 @@ else:
 #   - wide 레이아웃에서도 본문을 관리자처럼 일정 폭으로 고정
 # ---------------------------------------------------------
 if IS_OBSERVER:
-    st.markdown("""
-    <style>
-    /* ✅ wide에서도 본문 폭 고정 */
-    [data-testid="stMainBlockContainer"],
-    [data-testid="stMainBlockContainer"] .block-container,
-    [data-testid="stAppViewContainer"] .main .block-container,
-    [data-testid="stAppViewContainer"] section.main .block-container,
-    section.main .block-container,
-    .main .block-container,
-    .block-container{
-      max-width: 720px !important;
-      width: 100% !important;
-      padding-left: 1.2rem !important;
-      padding-right: 1.2rem !important;
-      margin-left: auto !important;
-      margin-right: auto !important;
-    }
-    </style>
-    """, unsafe_allow_html=True)
+        inject_style_once("OBSERVER_FIXED_WIDTH")
 
-st.markdown("""
-<style>
-/* ✅ Streamlit 상단 헤더/데코(파란 바/여백) 완전 제거 */
-header[data-testid="stHeader"],
-div[data-testid="stHeader"]{
-  display: none !important;
-  height: 0 !important;
-}
-div[data-testid="stToolbar"]{
-  display: none !important;
-  height: 0 !important;
-}
-div[data-testid="stDecoration"],
-[data-testid="stDecoration"]{
-  display: none !important;
-  height: 0 !important;
-}
-
-/* ✅ 'header를 숨겨도 남는' 상단 패딩/마진까지 제거 */
-[data-testid="stAppViewContainer"],
-[data-testid="stAppViewContainer"] > .main,
-[data-testid="stAppViewContainer"] .main,
-section.main{
-  padding-top: 0 !important;
-  margin-top: 0 !important;
-}
-
-/* ✅ 상단 타이틀(로고/앱명) 위 여백 최소화 */
-[data-testid="stAppViewContainer"] .block-container,
-.block-container{
-  padding-top: 0.10rem !important;
-}
-[data-testid="stAppViewContainer"] h1{
-  margin-top: 0rem !important;
-  margin-bottom: 0.45rem !important;
-}
-@media (max-width: 900px){
-  [data-testid="stAppViewContainer"] .block-container{
-    padding-top: 0.08rem !important;
-  }
-  [data-testid="stAppViewContainer"] h1{
-    margin-top: 0rem !important;
-    margin-bottom: 0.35rem !important;
-  }
-}
-
-.msc-scroll-x{
-  width:100%;
-  overflow-x:auto;
-  -webkit-overflow-scrolling:touch;
-}
-.msc-scroll-x { padding-bottom: 6px; }
-.msc-scroll-x table{
-  width:max-content;
-  min-width:100%;
-}
-.msc-scroll-x th, .msc-scroll-x td{
-  white-space:nowrap;
-}
-
-.msc-gamehead{display:flex; align-items:center; justify-content:flex-start; gap:10px; flex-wrap:wrap;}
-.msc-chip-wrap{display:flex; align-items:center; justify-content:flex-start; gap:6px; flex-wrap:wrap;}
-.msc-vs{display:inline-block; margin:0 6px; font-weight:900; font-size:0.78rem; color:#6b7280;}
-.msc-chip{display:inline-block; padding:2px 6px; border-radius:999px; font-size:0.78rem; font-weight:800; line-height:1;}
-.msc-chip-m{background:#dbeafe; color:#1e40af;}
-.msc-chip-f{background:#ffe4e6; color:#be123c;}
-.msc-chip-u{background:#e5e7eb; color:#374151;}
-.msc-round-divider{border-top:2px solid #e5e7eb; margin:0.8rem 0 0.55rem 0;}
-
-
-
-/* ✅ (Streamlit Cloud) 남는 최상단 '빈 띠'까지 더 줄이기
-   - header/decoration을 숨겨도 main 영역이 아래로 밀려있을 때가 있어
-   - 아래는 main 컨테이너를 살짝 위로 당겨서 여백을 사실상 0에 가깝게 만든다 */
-:root{
-  --tnnt-top-shift: 2.6rem;   /* 필요하면 2.0~3.2 사이로 조절 */
-}
-[data-testid="stAppViewContainer"] > .main,
-[data-testid="stAppViewContainer"] .main,
-section.main{
-  margin-top: calc(-1 * var(--tnnt-top-shift)) !important;
-}
-@media (max-width: 768px){
-  :root{ --tnnt-top-shift: 2.2rem; }
-}
-
-/* ✅ st.title/h1 자체 여백도 최소화 */
-[data-testid="stAppViewContainer"] h1,
-[data-testid="stAppViewContainer"] .stTitle,
-[data-testid="stAppViewContainer"] .stHeading{
-  margin-top: 0 !important;
-  padding-top: 0 !important;
-}
-</style>
-""", unsafe_allow_html=True)
-
-
-def safe_rerun():
-    if hasattr(st, "rerun"):
-        st.rerun()
-    elif hasattr(st, "experimental_rerun"):
-        st.experimental_rerun()
+inject_style_once("CHROME_HIDE")
 
 
 components.html(
@@ -1008,113 +1567,12 @@ components.html("""
 # ---------------------------------------------------------
 # ✅ Streamlit 상/하단 크레딧/툴바 숨김 CSS
 # ---------------------------------------------------------
-st.markdown("""
-<style>
-/* Streamlit 기본 메뉴/헤더/푸터 숨김 */
-#MainMenu {visibility: hidden;}
-/* ✅ 상단 헤더/푸터 영역 자체를 제거해서 위쪽 여백도 같이 제거 */
-header, footer {visibility: hidden; height: 0 !important;}
-[data-testid="stHeader"] {display: none !important; height: 0 !important;}
-[data-testid="stAppViewContainer"] > header {display: none !important; height: 0 !important;}
-[data-testid="stFooter"] {display: none !important; height: 0 !important;}
-
-/* 상단 툴바/장식/상태 아이콘 숨김 */
-div[data-testid="stToolbar"] {visibility: hidden !important; height: 0 !important;}
-div[data-testid="stDecoration"] {visibility: hidden !important; height: 0 !important;}
-div[data-testid="stStatusWidget"] {visibility: hidden !important; height: 0 !important;}
-.stDeployButton {display: none !important;}
-</style>
-""", unsafe_allow_html=True)
+inject_style_once("CHROME_HIDE")
 
 # ---------------------------------------------------------
 
 
-st.markdown("""
-<style>
-/* ✅ 대진표 한줄 고정 + 가로 스크롤 */
-.msa-game-row{
-  display:flex;
-  flex-wrap:nowrap;
-  align-items:center;
-  gap:10px;
-  margin:10px 0;
-}
-.msa-game-meta{
-  flex:0 0 auto;
-  white-space:nowrap;
-  font-weight:600;
-}
-.msa-game-line{
-  flex:1 1 auto;
-  white-space:nowrap;          /* 줄바꿈 금지 */
-  overflow-x:auto;             /* 넘치면 가로 스크롤 */
-  -webkit-overflow-scrolling:touch;
-  padding-bottom:2px;
-}
-.msa-game-line b{ white-space:nowrap; }
-
-.msa-round-divider{
-  border-top:1px solid rgba(148,163,184,0.55);
-  margin:14px 0;
-}
-
-
-/* ✅ 모바일: 점수 입력 row(라디오+점수+VS+점수+라디오) 한줄 고정 */
-.msa-score-row-hb{
-  flex-wrap: nowrap !important;
-  gap: 8px !important;
-}
-.msa-score-row-hb > div[data-testid="column"]{
-  min-width: 0 !important;
-}
-/* 점수 selectbox 폭 압축 */
-.msa-score-row-hb [data-testid="stSelectbox"],
-.msa-score-row-hb div[data-baseweb="select"]{
-  min-width: 72px !important;
-}
-.msa-score-row-hb [data-baseweb="select"] > div{
-  min-height: 40px !important;
-}
-/* 라디오 영역 너무 넓어지지 않게 */
-.msa-score-row-hb [data-testid="stRadio"]{
-  min-width: 0 !important;
-}
-
-
-/* ✅ 모바일: 4-1 수동배정 버튼 2개(전체/체크)도 한줄 고정 */
-@media (max-width: 900px){
-  /* Streamlit이 모바일에서 컬럼을 100% 폭으로 스택 처리함 → nowrap만 걸면 100%+100%가 옆으로 튐
-     그래서 이 줄(클래스 부여된 stHorizontalBlock)만 컬럼 폭을 강제로 50%로 축소 */
-  div[data-testid="stHorizontalBlock"].msc-no-wrap-hb{
-    flex-wrap: nowrap !important;
-    gap: 12px !important;
-    align-items: stretch !important;
-  }
-  /* 컬럼 wrapper(테스트 id가 버전마다 다를 수 있어 넓게 잡음) */
-  div[data-testid="stHorizontalBlock"].msc-no-wrap-hb > div{
-    flex: 1 1 0 !important;
-    width: 0 !important;          /* ✅ 핵심: 모바일에서 100%로 고정되는 폭을 무력화 */
-    min-width: 0 !important;
-    max-width: none !important;
-  }
-  /* 내부 컨테이너는 100%로 */
-  div[data-testid="stHorizontalBlock"].msc-no-wrap-hb > div > div{
-    width: 100% !important;
-  }
-  /* 버튼 자체도 모바일에서 살짝 컴팩트하게 (한눈에 들어오게) */
-  div[data-testid="stHorizontalBlock"].msc-no-wrap-hb button{
-    width: 100% !important;
-    min-height: 54px !important;
-    height: auto !important;
-    padding: 0.55rem 0.65rem !important;
-    font-size: 0.95rem !important;
-    line-height: 1.15 !important;
-    white-space: normal !important;   /* 글자 길면 2줄 허용(가로 넘침 방지) */
-    word-break: keep-all !important;
-  }
-}
-</style>
-""", unsafe_allow_html=True)
+inject_style_once("SCHEDULE_ONE_LINE")
 
 
 # ---------------------------------------------------------
@@ -1987,68 +2445,65 @@ def _render_mobile_table_html(html: str, *, font_px: int = 11):
     except Exception:
         sid = "mt_static"
 
-    st.markdown(
-        f"""
-<style>
-  /* ✅ 모바일 표 최적화: 세로로 길게 쪼개지는 현상 방지 */
-  #{sid} {{
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
-  }}
-  #{sid} table {{
-    width: max-content;
-    min-width: 100%;
-    border-collapse: collapse;
-    font-size: {font_px}px !important;
-    line-height: 1.15 !important;
-  }}
-  #{sid} th, #{sid} td {{
-    padding: 4px 6px !important;
-    white-space: nowrap !important;
-    word-break: keep-all !important;
-    writing-mode: horizontal-tb !important;
-  }}
-
-  /* ✅ 이름 뱃지(경기 요약/통계 표에서 폭 과다 사용 방지) */
-  #{sid} .name-badge {{
-    padding: 2px 6px !important;
-    margin-right: 3px !important;
-    border-radius: 6px !important;
-    font-size: 0.80rem !important;
-    font-weight: 650 !important;
-  }}
-
-  /* ✅ "현재 스코어 요약(표)"는 화면에 '한눈에' 들어오게 더 타이트하게 */
-  #{sid} table.score-summary {{
-    /* zoom은 모바일 크롬에서 안정적. (지원 안 되면 아래 transform fallback) */
-    zoom: 0.92;
-  }}
-  @supports not (zoom: 1) {{
-    #{sid} table.score-summary {{
-      transform: scale(0.92);
-      transform-origin: top left;
-    }}
-  }}
-  #{sid} table.score-summary th, #{sid} table.score-summary td {{
-    padding: 3px 4px !important;
-  }}
-  #{sid} table.score-summary .name-badge {{
-    padding: 1px 5px !important;
-    margin-right: 2px !important;
-    border-radius: 6px !important;
-    font-size: 0.74rem !important;
-    font-weight: 650 !important;
-  }}
-  /* 인덱스/헤더가 한 글자씩 세로로 꺾이는 경우 방지 */
-  #{sid} th {{
-    max-width: none !important;
-  }}
-</style>
-<div id="{sid}" class="mobile-table-wrap msc-scroll-x">{html}</div>
-
-        """,
-        unsafe_allow_html=True,
-    )
+        inject_css_once(f"MOBILE_TABLE_DYNAMIC::{sid}::{font_px}", f"""
+    <style>
+      /* ✅ 모바일 표 최적화: 세로로 길게 쪼개지는 현상 방지 */
+      #{sid} {{
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+      }}
+      #{sid} table {{
+        width: max-content;
+        min-width: 100%;
+        border-collapse: collapse;
+        font-size: {font_px}px !important;
+        line-height: 1.15 !important;
+      }}
+      #{sid} th, #{sid} td {{
+        padding: 4px 6px !important;
+        white-space: nowrap !important;
+        word-break: keep-all !important;
+        writing-mode: horizontal-tb !important;
+      }}
+    
+      /* ✅ 이름 뱃지(경기 요약/통계 표에서 폭 과다 사용 방지) */
+      #{sid} .name-badge {{
+        padding: 2px 6px !important;
+        margin-right: 3px !important;
+        border-radius: 6px !important;
+        font-size: 0.80rem !important;
+        font-weight: 650 !important;
+      }}
+    
+      /* ✅ "현재 스코어 요약(표)"는 화면에 '한눈에' 들어오게 더 타이트하게 */
+      #{sid} table.score-summary {{
+        /* zoom은 모바일 크롬에서 안정적. (지원 안 되면 아래 transform fallback) */
+        zoom: 0.92;
+      }}
+      @supports not (zoom: 1) {{
+        #{sid} table.score-summary {{
+          transform: scale(0.92);
+          transform-origin: top left;
+        }}
+      }}
+      #{sid} table.score-summary th, #{sid} table.score-summary td {{
+        padding: 3px 4px !important;
+      }}
+      #{sid} table.score-summary .name-badge {{
+        padding: 1px 5px !important;
+        margin-right: 2px !important;
+        border-radius: 6px !important;
+        font-size: 0.74rem !important;
+        font-weight: 650 !important;
+      }}
+      /* 인덱스/헤더가 한 글자씩 세로로 꺾이는 경우 방지 */
+      #{sid} th {{
+        max-width: none !important;
+      }}
+    </style>
+    <div id="{sid}" class="mobile-table-wrap msc-scroll-x">{html}</div>
+    
+            """)
 
 
 def render_static_on_mobile(df_or_styler):
@@ -3651,207 +4106,11 @@ def mini_subtitle_card(title: str, description: str = "", emoji: str = "📝"):
     )
 
 
-MOBILE_LANDSCAPE = """
-<style>
-
-/* 📱 모바일 가로 화면 전용 */
-@media screen and (max-width: 768px) and (orientation: landscape) {
-
-    /* 전체 컨테이너 여백 최소화 */
-    .block-container {
-        padding-left: 0.35rem !important;
-        padding-right: 0.35rem !important;
-        padding-top: 0.12rem !important;
-        padding-bottom: 0.4rem !important;
-    }
-
-    /* 제목 폰트 더 축소 */
-    h1 { font-size: 1.05rem !important; margin-bottom: 0.35rem !important; }
-    h2 { font-size: 0.95rem !important; }
-    h3, h4 { font-size: 0.85rem !important; }
-
-    /* 일반 텍스트 */
-    p, span, label, div {
-        font-size: 0.78rem !important;
-    }
-
-    /* Selectbox / TextInput 높이 줄이기 */
-    div[data-baseweb="select"] {
-        font-size: 0.78rem !important;
-        min-height: 1.65rem !important;
-        padding-top: 0.05rem !important;
-        padding-bottom: 0.05rem !important;
-    }
-
-    /* 점수 Select 글씨 */
-    div.stSelectbox > label {
-        font-size: 0.72rem !important;
-    }
-
-    /* 🔽 표 데이터프레임 폰트 & 패딩 축소 */
-    [data-testid="stDataFrame"] table {
-        font-size: 0.65rem !important;
-    }
-
-    [data-testid="stDataFrame"] table td,
-    [data-testid="stDataFrame"] table th {
-        padding: 2px 3px !important;
-    }
-
-    [data-testid="stDataFrame"] div[role="row"] {
-        min-height: 14px !important;
-    }
-
-    /* 버튼 */
-    div[data-testid="stButton"] > button {
-        font-size: 0.80rem !important;
-        padding-top: 0.50rem !important;
-        padding-bottom: 0.50rem !important;
-        margin-top: 0.2rem !important;
-        margin-bottom: 0.2rem !important;
-    }
-
-    /* 멀티셀렉트 박스 */
-    .stMultiSelect div[data-baseweb="tag"] {
-        font-size: 0.70rem !important;
-        padding: 1px 4px !important;
-    }
-}
-</style>
-"""
-st.markdown(MOBILE_LANDSCAPE, unsafe_allow_html=True)
+MOBILE_LANDSCAPE = STYLES_CONSTANTS["MOBILE_LANDSCAPE"]
+inject_style_once("MOBILE_LANDSCAPE")
 
 
-BUTTON_CSS = """
-<style>
-/* =========================================================
-   ✅ 버튼 컬러 팔레트 (4종)
-   - 기본: 민트
-   - marker(div class=main-*-btn) 바로 다음에 오는 st.button을 색상 오버라이드
-     * main-primary-btn   : 민트
-     * main-danger-btn    : 빨강
-     * main-secondary-btn : 파랑
-     * main-warning-btn   : 주황
-   ---------------------------------------------------------
-   ⚠️ Streamlit은 markdown HTML이 위젯을 "감싸지" 못해서
-      (div로 래핑해도) 스타일이 안 먹는 경우가 많아.
-      그래서 :has() + 인접 형제 선택자로 "마커 다음 버튼"을 잡는다.
-   ========================================================= */
-
-:root{
-  --btn-mint:#5fcdb2;
-  --btn-mint-hover:#55c4aa;
-
-  --btn-red:#ef4444;
-  --btn-red-hover:#dc2626;
-
-  --btn-blue:#13baff;
-  --btn-blue-hover:#2563eb;
-
-  --btn-orange:#f59e0b;
-  --btn-orange-hover:#d97706;
-
-  --btn-radius:14px;
-  --btn-height:56px;
-}
-
-/* ✅ 기본(민트) */
-div[data-testid="stButton"] > button{
-  background-color: var(--btn-mint) !important;
-  color:#fff !important;
-  border:1px solid var(--btn-mint) !important;
-  font-weight:700 !important;
-  border-radius:var(--btn-radius) !important;
-  height:var(--btn-height) !important;
-  box-shadow:0 8px 18px rgba(95,205,178,0.22) !important;
-  filter:none !important;
-}
-div[data-testid="stButton"] > button:hover{
-  background-color: var(--btn-mint-hover) !important;
-  border-color: var(--btn-mint-hover) !important;
-  filter:none !important;
-}
-div[data-testid="stButton"] > button:active{
-  transform: translateY(1px);
-}
-div[data-testid="stButton"] > button:focus{
-  outline:none !important;
-  box-shadow:0 0 0 4px rgba(95,205,178,0.25) !important;
-}
-
-/* ---------------------------------------------------------
-   ✅ "마커 다음 버튼" 컬러 오버라이드 (Streamlit DOM 대응)
-   - 최신: div[data-testid="stElementContainer"]
-   - 구버전: div.element-container
-   --------------------------------------------------------- */
-
-/* 민트(명시) */
-div[data-testid="stElementContainer"]:has(.main-primary-btn) + div[data-testid="stElementContainer"] div[data-testid="stButton"] > button,
-div.element-container:has(.main-primary-btn) + div.element-container div[data-testid="stButton"] > button{
-  background-color: var(--btn-mint) !important;
-  border-color: var(--btn-mint) !important;
-  box-shadow:0 8px 18px rgba(95,205,178,0.22) !important;
-}
-/* 빨강 */
-div[data-testid="stElementContainer"]:has(.main-danger-btn) + div[data-testid="stElementContainer"] div[data-testid="stButton"] > button,
-div.element-container:has(.main-danger-btn) + div.element-container div[data-testid="stButton"] > button{
-  background-color: var(--btn-red) !important;
-  border-color: var(--btn-red) !important;
-  box-shadow:0 8px 18px rgba(239,68,68,0.18) !important;
-}
-/* 파랑 */
-div[data-testid="stElementContainer"]:has(.main-secondary-btn) + div[data-testid="stElementContainer"] div[data-testid="stButton"] > button,
-div.element-container:has(.main-secondary-btn) + div.element-container div[data-testid="stButton"] > button{
-  background-color: var(--btn-blue) !important;
-  border-color: var(--btn-blue) !important;
-  box-shadow:0 8px 18px rgba(19,186,255,0.18) !important;
-}
-/* 주황 */
-div[data-testid="stElementContainer"]:has(.main-warning-btn) + div[data-testid="stElementContainer"] div[data-testid="stButton"] > button,
-div.element-container:has(.main-warning-btn) + div.element-container div[data-testid="stButton"] > button{
-  background-color: var(--btn-orange) !important;
-  border-color: var(--btn-orange) !important;
-  box-shadow:0 8px 18px rgba(245,158,11,0.18) !important;
-}
-
-/* hover */
-/* 민트 hover */
-div[data-testid="stElementContainer"]:has(.main-primary-btn) + div[data-testid="stElementContainer"] div[data-testid="stButton"] > button:hover,
-div.element-container:has(.main-primary-btn) + div.element-container div[data-testid="stButton"] > button:hover{
-  background-color: var(--btn-mint-hover) !important;
-  border-color: var(--btn-mint-hover) !important;
-}
-/* 빨강 hover */
-div[data-testid="stElementContainer"]:has(.main-danger-btn) + div[data-testid="stElementContainer"] div[data-testid="stButton"] > button:hover,
-div.element-container:has(.main-danger-btn) + div.element-container div[data-testid="stButton"] > button:hover{
-  background-color: var(--btn-red-hover) !important;
-  border-color: var(--btn-red-hover) !important;
-}
-/* 파랑 hover */
-div[data-testid="stElementContainer"]:has(.main-secondary-btn) + div[data-testid="stElementContainer"] div[data-testid="stButton"] > button:hover,
-div.element-container:has(.main-secondary-btn) + div.element-container div[data-testid="stButton"] > button:hover{
-  background-color: var(--btn-blue-hover) !important;
-  border-color: var(--btn-blue-hover) !important;
-}
-/* 주황 hover */
-div[data-testid="stElementContainer"]:has(.main-warning-btn) + div[data-testid="stElementContainer"] div[data-testid="stButton"] > button:hover,
-div.element-container:has(.main-warning-btn) + div.element-container div[data-testid="stButton"] > button:hover{
-  background-color: var(--btn-orange-hover) !important;
-  border-color: var(--btn-orange-hover) !important;
-}
-
-/* ✅ 모바일 버튼 크기 살짝 조정 */
-@media (max-width: 768px) {
-  div[data-testid="stButton"] > button {
-    font-size: 0.95rem !important;
-    padding-top: 0.6rem !important;
-    padding-bottom: 0.6rem !important;
-  }
-}
-</style>
-"""
-
-
+BUTTON_CSS = STYLES_CONSTANTS["BUTTON_CSS_BASE"]
 # ✅ 스코어보드 전용 테마 (버튼/포인트 컬러)
 if IS_SCOREBOARD:
     BUTTON_CSS = (
@@ -3860,106 +4119,13 @@ if IS_SCOREBOARD:
         .replace("--btn-mint-hover:#55c4aa;", "--btn-mint-hover:#6d28d9;")
     )
 
-st.markdown(BUTTON_CSS, unsafe_allow_html=True)
+inject_css_once(f"BUTTON_CSS_{'SCB' if IS_SCOREBOARD else 'ADMIN'}", BUTTON_CSS)
 
 # ✅ 스코어보드 전용 탭 포인트 컬러
 if IS_SCOREBOARD:
-    st.markdown(
-        """
-<style>
-/* 선택된 탭 텍스트/언더라인 색상 */
-.stTabs [role="tab"][aria-selected="true"]{
-  color:#6d28d9 !important;
-}
-.stTabs [data-baseweb="tab-highlight"]{
-  background-color:#6d28d9 !important;
-}
-</style>
-""",
-        unsafe_allow_html=True,
-    )
+        inject_style_once("SCOREBOARD_TAB_ACCENT")
 
-
-# 🔽 모바일 폰에서 여백/폰트/탭 간격 줄이는 CSS + 이름 뱃지 색상 고정
-MOBILE_CSS = """
-<style>
-/* 전체 패딩 줄이기 */
-.block-container {
-    padding-top: 0.12rem !important;
-    padding-bottom: 1.5rem;
-    padding-left: 0.9rem;
-    padding-right: 0.9rem;
-}
-
-/* 이름 뱃지 기본 색상(다크모드에서도 검은 글씨 유지) */
-.name-badge {
-    color: #111111 !important;
-    white-space: nowrap;
-}
-
-/* 작은 화면용 최적화 */
-@media (max-width: 768px) {
-
-    .block-container {
-        padding-left: 0.6rem;
-        padding-right: 0.6rem;
-    }
-
-    h1 {
-        font-size: 1.4rem;
-        margin-bottom: 0.7rem;
-    }
-
-    h2 {
-        font-size: 1.15rem;
-        margin-bottom: 0.5rem;
-    }
-
-    h3 {
-        font-size: 1.0rem;
-        margin-bottom: 0.4rem;
-    }
-
-    /* 탭 버튼들 한 줄에 너무 꽉 차지 않게 */
-    .stTabs [data-baseweb="tab-list"] {
-        gap: 0.15rem;
-        flex-wrap: wrap;
-    }
-    .stTabs [role="tab"] {
-        font-size: 0.8rem;
-        padding: 0.2rem 0.45rem;
-    }
-
-    /* 데이터프레임 스크롤 영역 조금 낮게 */
-    .stDataFrame {
-        font-size: 0.8rem;
-    }
-
-    /* 모바일에서 이름 뱃지 살짝 작게 */
-    .name-badge {
-        font-size: 0.8rem !important;
-        padding: 2px 6px !important;
-    }
-}
-</style>
-"""
-
-st.markdown("""
-<style>
-.mbti-tag {
-    display:inline-block;
-    background:#f4e8ff;     /* 파스텔 보라 */
-    color:#6d28d9;          /* 진한 보라 텍스트 */
-    border-radius:8px;
-    padding:2px 7px;
-    font-size:0.73rem;
-    font-weight:600;
-    margin-left:4px;
-}
-</style>
-""", unsafe_allow_html=True)
-
-st.markdown(MOBILE_CSS, unsafe_allow_html=True)
+inject_style_once("MOBILE_CSS")
 
 # ---------------------------------------------------------
 # ✅ 로그인 + 클럽코드 선택(멀티클럽)
@@ -4133,29 +4299,7 @@ def smart_table_hybrid(df_or_styler):
     # 모바일: HTML 테이블
     # ---------------------------
     if mobile_mode:
-        st.markdown(
-            """
-            <style>
-            .mobile-table-wrap table {
-                width: 100% !important;
-                border-collapse: collapse !important;
-                table-layout: auto !important;
-                font-size: 0.78rem !important;
-            }
-            .mobile-table-wrap th,
-            .mobile-table-wrap td {
-                padding: 0.22rem 0.35rem !important;
-                white-space: nowrap !important;
-                word-break: keep-all !important;
-                vertical-align: middle !important;
-            }
-            .mobile-table-wrap thead th {
-                font-weight: 800 !important;
-            }
-            </style>
-            """,
-            unsafe_allow_html=True
-        )
+        inject_style_once("MOBILE_TABLE_WRAP")
 
         # Styler가 넘어오면 data를 뽑아 HTML 변환
         if hasattr(df_or_styler, "data"):
@@ -4221,47 +4365,8 @@ st.title(f"🎾 {APP_TITLE}")
 mobile_mode = st.session_state.get('mobile_mode', False)
 
 
-MOBILE_SCORE_ROW_CSS = """
-<style>
-/* 모바일에서 점수 입력 행(라디오+점수)을 한 줄(가로)로 최대한 유지 */
-@media (max-width: 768px) {
-
-    /* ✅ Streamlit columns 래퍼가 자동으로 줄바꿈(wrap)되는 걸 방지 */
-    .score-row [data-testid="stHorizontalBlock"] {
-        flex-wrap: nowrap !important;
-        gap: 0.25rem !important;
-        align-items: center !important;
-    }
-
-    /* 각 column 패딩 축소 */
-    .score-row [data-testid="column"] {
-        padding-left: 0.08rem !important;
-        padding-right: 0.08rem !important;
-    }
-
-    /* 드롭다운(점수) 더 컴팩트 */
-    .score-row [data-baseweb="select"] {
-        min-width: 2.7rem !important;
-        max-width: 3.2rem !important;
-        font-size: 0.78rem !important;
-    }
-
-    /* 라디오(사이드 선택) 줄간격/패딩 축소 */
-    .score-row div[role="radiogroup"] label {
-        margin: 0 !important;
-        padding: 0.10rem 0 !important;
-        line-height: 1.05 !important;
-    }
-
-    /* 이름 배지/텍스트 살짝 축소 */
-    .score-row .name-badge,
-    .score-row span {
-        font-size: 0.80rem !important;
-    }
-}
-</style>
-"""
-st.markdown(MOBILE_SCORE_ROW_CSS, unsafe_allow_html=True)
+MOBILE_SCORE_ROW_CSS = STYLES_CONSTANTS["MOBILE_SCORE_ROW_CSS"]
+inject_style_once("MOBILE_SCORE_ROW_CSS")
 
 
 
@@ -4529,7 +4634,7 @@ def render_tab_player_manage(tab):
             if hasattr(st, "rerun"):
                 st.rerun()
             elif hasattr(st, "experimental_rerun"):
-                st.experimental_rerun()
+                safe_rerun()
 
         # ✅ 위젯 key 값은 "생성 후" 수정하면 에러 → 다음 rerun 시작 때만 적용(pending)
         def _queue_widget_set(key: str, value):
@@ -5036,12 +5141,6 @@ def render_tab_today_session(tab):
         # =========================================================
         # [TAB2] 공용: rerun
         # =========================================================
-        def safe_rerun():
-            if hasattr(st, "rerun"):
-                st.rerun()
-            elif hasattr(st, "experimental_rerun"):
-                st.experimental_rerun()
-
         def _sanitize_multiselect_value(key: str, valid_options):
             """멀티셀렉트 선택값이 옵션에 없으면 제거해서 Streamlit 크래시 방지"""
             cur = st.session_state.get(key, [])
@@ -6822,2244 +6921,7 @@ def render_tab_today_session(tab):
 
             if _aa_slots:
                 # ✅ 시드 UI(예쁜 카드 + 순서형 선택)
-                st.markdown(
-                    """
-<style>
-.tnnt-seed-card{
-  border:1px solid rgba(148,163,184,0.35);
-  background: rgba(248,250,252,0.9);
-  padding: 14px 14px 12px 14px;
-  border-radius: 14px;
-  margin-top: 10px;
-  margin-bottom: 10px;
-}
-.tnnt-seed-title{
-  font-weight:800;
-  font-size:1.02rem;
-  margin-bottom:6px;
-}
-.tnnt-seed-desc{
-  color:#475569;
-  font-size:0.92rem;
-  line-height:1.35;
-  margin-bottom:10px;
-}
-.tnnt-seed-chips{
-  display:flex;
-  flex-wrap:wrap;
-  gap:6px;
-  margin-top:6px;
-}
-.tnnt-seed-chip{
-  display:inline-flex;
-  align-items:center;
-  gap:6px;
-  padding:4px 10px;
-  border-radius:999px;
-  border:1px solid rgba(148,163,184,0.45);
-  background: rgba(255,255,255,0.85);
-  font-weight:700;
-  font-size:0.88rem;
-  color:#0f172a;
-}
-.tnnt-seed-chip small{
-  font-weight:800;
-  color:#334155;
-  opacity:0.9;
-}
-.tnnt-seed-preview{
-  margin-top:10px;
-  padding:10px 12px;
-  border-radius:12px;
-  border:1px dashed rgba(148,163,184,0.6);
-  background: rgba(255,255,255,0.75);
-  font-size:0.93rem;
-  line-height:1.45;
-}
-.tnnt-seed-preview b{ font-weight:800; }
-</style>
-                    """,
-                    unsafe_allow_html=True,
-                )
-
-                st.checkbox(
-                    "시드 추가",
-                    value=bool(st.session_state.get("aa_seed_enabled", False)),
-                    key="aa_seed_enabled",
-                    help="선택한 선수를 지정된 순번(자리)에 고정해서 한울 AA 대진을 만들 수 있어요.",
-                )
-
-                if st.session_state.get("aa_seed_enabled", False):
-                    _slots_txt = ", ".join(_aa_slots)
-
-                    st.markdown(
-                        f"""
-<div class="tnnt-seed-card">
-  <div class="tnnt-seed-title">🌱 시드 자리 지정</div>
-  <div class="tnnt-seed-desc">
-    현재 <b>{_aa_n}명</b>에서는 시드를 <b>최대 {len(_aa_slots)}명</b>까지 지정할 수 있어요.<br/>
-    아래에서 <b>1번 시드 → 2번 시드 → …</b> 순서대로 선택하면, 자동으로 <b>{_slots_txt}</b> 자리에 고정 배치됩니다.
-  </div>
-  <div class="tnnt-seed-chips">
-    {"".join([f'<span class="tnnt-seed-chip"><small>자리</small> {tok}</span>' for tok in _aa_slots])}
-  </div>
-</div>
-                        """,
-                        unsafe_allow_html=True,
-                    )
-
-                    # -------------------------------------------------
-                    # ✅ 순서형 시드 선택(1번 시드, 2번 시드...)
-                    #   - 앞 시드가 비어있으면 다음 시드는 비활성화(순서 꼬임 방지)
-                    #   - 중복 선택 방지
-                    # -------------------------------------------------
-                    # 현재 인원에서 제외된 시드 자동 정리(+ 키 값도 같이 정리)
-                    for i in range(1, len(_aa_slots) + 1):
-                        k = f"aa_seed_pick_{i}"
-                        curv = st.session_state.get(k, "(선택)")
-                        if curv != "(선택)" and curv not in (players_selected or []):
-                            st.session_state[k] = "(선택)"
-                    # 슬롯 개수가 줄어들면 나머지 키는 비워두기
-                    for j in range(len(_aa_slots) + 1, 10):
-                        k = f"aa_seed_pick_{j}"
-                        if k in st.session_state:
-                            st.session_state[k] = "(선택)"
-
-                    _picked = []
-                    _used = set()
-
-                    # 보기 좋은 2열 배치(슬롯 수에 따라 자동)
-                    cols = st.columns(2) if len(_aa_slots) >= 3 else st.columns(1)
-
-                    for i, tok in enumerate(_aa_slots, start=1):
-                        # 다음 시드는 이전 시드가 비어있으면 비활성화
-                        disabled = False
-                        if i > 1 and st.session_state.get(f"aa_seed_pick_{i-1}", "(선택)") == "(선택)":
-                            disabled = True
-
-                        key = f"aa_seed_pick_{i}"
-                        # ✅ Streamlit 제약: 위젯 생성(Selectbox) 이후 session_state[key]를 다시 쓰면 예외가 날 수 있어요.
-                        # 그래서 disabled 상태라면 *위젯 생성 전에* 값을 '(선택)'으로 정리해 둡니다.
-                        if disabled and st.session_state.get(key, "(선택)") != "(선택)":
-                            st.session_state[key] = "(선택)"
-                        prev = st.session_state.get(key, "(선택)")
-
-                        opts = ["(선택)"] + [
-                            p for p in (players_selected or [])
-                            if (p not in _used) or (p == prev)
-                        ]
-
-                        # 열 배치
-                        target_col = cols[(i - 1) % len(cols)]
-                        with target_col:
-                            st.caption(f"{i}번 시드 → {tok}자리")
-                            val = st.selectbox(
-                                f"seed_{i}_{tok}",
-                                options=opts,
-                                index=opts.index(prev) if prev in opts else 0,
-                                key=key,
-                                label_visibility="collapsed",
-                                disabled=disabled,
-                            )
-
-                        # disabled일 때는 선택 불가(항상 '(선택)'로 처리)
-                        if disabled:
-                            val = "(선택)"
-
-                        if val != "(선택)":
-                            _picked.append(val)
-                            _used.add(val)
-
-                    # 기존 로직과 호환되게 리스트로 저장(선택 순서대로 slots에 매핑)
-                    st.session_state.aa_seed_players = _picked
-
-                    # 미리보기: "순번 -> 선수" 표시
-                    if _picked:
-                        _preview = []
-                        for i, tok in enumerate(_aa_slots[: len(_picked)]):
-                            _preview.append(f"<b>{tok}번</b>: {render_name_badge(_picked[i], roster_by_name)}")
-                        st.markdown(
-                            "<div class='tnnt-seed-preview'><b>시드 배치 미리보기</b><br/>" + " / ".join(_preview) + "</div>",
-                            unsafe_allow_html=True,
-                        )
-                    else:
-                        st.caption("※ 시드를 지정하지 않으면, 기존 한울 AA 기본 순서로 대진이 생성돼요.")
-            else:
-                # 5명(또는 규칙이 없는 인원)에서는 시드 기능 비활성화
-                st.session_state.aa_seed_enabled = False
-                st.session_state.aa_seed_players = []
-                st.caption("현재 인원수에서는 시드 기능을 사용할 수 없어요(지원되는 순번 규칙이 없어요).")
-
-        # =========================================================
-        # 4-1. 직접 배정(수동) 입력
-        # =========================================================
-        if is_manual_mode:
-            st.markdown("---")
-            st.subheader("4-1. 직접 배정(수동) 입력")
-            st.caption("※ 한 라운드 안에서는 같은 선수가 중복 선택되지 않도록 제한됩니다.")
-            # ✅ pending → session_state (위젯 렌더 전에만!)
-            _apply_manual_pending()
-
-            st.markdown("**성별 옵션**")
-            # ✅ 성별 옵션(전역) / 코트별 설정(커스텀)은 라디오로 한 번만 선택되도록 처리
-            manual_mode_sel = st.radio(
-                "성별 옵션",
-                ["성별랜덤", "동성", "혼합", "코트별 설정"],
-                horizontal=True,
-                key="manual_gender_mode",
-                label_visibility="collapsed",
-            )
-
-            # ✅ 코트별 설정은 '혼합'과 중복으로 켜지지 않도록(라디오 1개만 선택)
-            court_custom_on = (manual_mode_sel == "코트별 설정")
-            st.session_state["court_custom_on"] = court_custom_on
-
-            # ✅ 코트별 설정일 때도 "기본 성별 옵션"은 기억해 두고, 기본값으로 사용
-            if not court_custom_on:
-                st.session_state["manual_gender_mode_base"] = manual_mode_sel
-            manual_gender_mode = (
-                st.session_state.get("manual_gender_mode_base", "혼합")
-                if court_custom_on
-                else manual_mode_sel
-            )
-
-# ✅ 동성 세부 옵션(동성/남성/여성) — '동성'일 때만 표시
-            manual_samegender_submode = "동성복식"
-            if manual_gender_mode == "동성":
-                manual_samegender_submode = st.radio(
-                    "동성 세부 옵션",
-                    ["동성복식", "남성복식", "여성복식"],
-                    horizontal=True,
-                    index=0,
-                    key="manual_samegender_submode",
-                    label_visibility="collapsed",
-                )
-            else:
-                # 다른 모드에서는 항상 기본값으로 고정
-                st.session_state["manual_samegender_submode"] = "동성복식"
-            manual_fill_ntrp = st.checkbox("NTRP 고려", key="manual_fill_ntrp")
-
-            # ✅ 모바일에서도 버튼 2개를 한 줄(좌/우 반반)로 유지
-            b1, b2 = st.columns(2)
-            with b1:
-                st.markdown('<div class="main-primary-btn">', unsafe_allow_html=True)
-                fill_all_clicked = st.button(
-                    "빈칸 자동 채우기(전체 라운드)",
-                    use_container_width=True,
-                    key="btn_fill_all_rounds",
-                )
-                st.markdown("</div>", unsafe_allow_html=True)
-
-            with b2:
-                st.markdown('<div class="main-danger-btn">', unsafe_allow_html=True)
-                clear_all_clicked = st.button(
-                    "전체 초기화(수동 입력)",
-                    use_container_width=True,
-                    key="btn_clear_all_rounds",
-                )
-                st.markdown("</div>", unsafe_allow_html=True)
-
-            st.caption("체크된 게임만 자동 채우기/초기화는 아래에서 가능")
-
-            # ✅ plan을 '바로' state에 반영 (pending/rerun 제거)
-            # ✅ plan을 '바로' state에 반영 (pending/rerun 제거)
-            def _apply_plan_to_state(plan: dict, auto_keys=None):
-                """plan을 session_state에 반영.
-
-                auto_keys:
-                  - 이번 자동 채우기로 "자동으로 들어간 슬롯"의 key set
-                  - 이 key들은 다음 "빈칸 채우기" 때 다시 랜덤으로 교체 대상이 됨
-                
-                ✅ 중요: 체크된 게임만 채우기처럼 "일부 코트"만 갱신할 때는
-                갱신 대상이 아닌 코트의 기존 auto 플래그는 그대로 유지해야 함.
-                그래서 auto_keys에 포함된 것만 True로 찍고, 나머지는 강제로 False로 만들지 않음.
-                """
-                if not isinstance(plan, dict):
-                    return
-                auto_keys = set(auto_keys or [])
-                for k, v in plan.items():
-                    if v and v != "선택":
-                        st.session_state[k] = v
-                        st.session_state[f"_prev_{k}"] = v
-                        if k in auto_keys:
-                            st.session_state[f"_auto_{k}"] = True
-                        else:
-                            if f"_auto_{k}" not in st.session_state:
-                                st.session_state[f"_auto_{k}"] = False
-            # -------------------------
-            # 전체 초기화
-            # -------------------------
-            if clear_all_clicked:
-                for rr in range(1, int(total_rounds) + 1):
-                    for k in _manual_all_keys_for_round(rr, court_count, gtype):
-                        st.session_state[k] = "선택"
-                        st.session_state[f"_prev_{k}"] = "선택"
-                        st.session_state[f"_auto_{k}"] = False
-                st.session_state.pop("_manual_pending_set", None)  # 혹시 남아있던 거 제거
-
-            # -------------------------
-            # 전체 라운드 빈칸 채우기
-            #   - ✅ 사용자가 직접 고른 값은 유지
-            #   - ✅ 이전에 자동으로 들어간 값은 이번 클릭에서 다시 랜덤으로 갈아끼움
-            # -------------------------
-            
-            # =========================================================
-            # ✅ 코트별(게임별) 자동 채우기: 공평한 게임수(최대 1게임 차) + 타입별 제약
-            # =========================================================
-            def _manual_game_no(rr: int, cc: int, court_count: int) -> int:
-                return (int(rr) - 1) * int(court_count) + int(cc)
-
-            def _desired_mode_for_game(rr: int, cc: int, court_count: int):
-                # 커스텀 ON: 게임별 라디오
-                if bool(st.session_state.get("court_custom_on", False)):
-                    gno = _manual_game_no(rr, cc, court_count)
-                    return st.session_state.get(f"court_mode_game_{gno}", "랜덤") or "랜덤"
-
-                # 커스텀 OFF: 전역 성별 옵션
-                if manual_gender_mode == "혼합":
-                    return "혼합복식"
-                if manual_gender_mode == "동성":
-                    return (manual_samegender_submode or "동성복식")
-                return "랜덤"
-
-            def _is_auto_slot(k: str) -> bool:
-                return bool(st.session_state.get(f"_auto_{k}", False))
-
-            def _fair_pick(cands, counts: Counter, rng: random.Random, ref_ntrp=None, ntrp_on=False):
-                cands = [c for c in cands if c is not None]
-                if not cands:
-                    return None
-
-                # 현재 전체 최소 게임수 기준(최대 1게임 차 유지)
-                try:
-                    cur_min = min(counts.values()) if counts else 0
-                except Exception:
-                    cur_min = 0
-
-                eligible = [p for p in cands if counts.get(p, 0) <= cur_min + 1]
-                if not eligible:
-                    return None
-
-                # 가장 적게 뛴 사람 우선
-                min_c = min(counts.get(p, 0) for p in eligible)
-                best = [p for p in eligible if counts.get(p, 0) == min_c]
-
-                if not best:
-                    return None
-
-                if ntrp_on and (ref_ntrp is not None):
-                    try:
-                        pick = _pick_by_ntrp_closest(best, ref_ntrp, rng=rng)
-                        return pick or rng.choice(best)
-                    except Exception:
-                        return rng.choice(best)
-
-                return rng.choice(best)
-
-            def _fill_manual_fair(target_by_round: dict | None, seed_base: int):
-                """수동 배정 자동 채우기(공평성 + 코트별 타입).
-
-                target_by_round:
-                  - None: 전체 라운드/전체 코트 대상
-                  - {round: [court, ...], ...}: 해당 코트만 변경(같은 라운드 내 중복 방지 유지)
-                """
-                MAX_RETRY = 200
-
-                # ✅ (1) 고정(유지)되는 값들을 먼저 수집해서 base_counts / used_by_round를 만든다.
-                base_counts = Counter({p: 0 for p in players_selected})
-                used_by_round_base = {int(rr): set() for rr in range(1, int(total_rounds) + 1)}
-
-                def _is_target(rr: int, cc: int) -> bool:
-                    if target_by_round is None:
-                        return True
-                    return (int(rr) in target_by_round) and (int(cc) in set(target_by_round[int(rr)]))
-
-                for rr in range(1, int(total_rounds) + 1):
-                    for cc in range(1, int(court_count) + 1):
-                        is_target = _is_target(rr, cc)
-
-                        if gtype == "단식":
-                            ks = [_manual_key(rr, cc, 1, gtype), _manual_key(rr, cc, 2, gtype)]
-                        else:
-                            ks = [_manual_key(rr, cc, i, gtype) for i in (1, 2, 3, 4)]
-
-                        for k in ks:
-                            v = _get_manual_value(k)
-                            if v == "선택":
-                                continue
-
-                            # 대상 코트가 아니면 항상 유지
-                            if not is_target:
-                                used_by_round_base[int(rr)].add(v)
-                                base_counts[v] += 1
-                                continue
-
-                            # 대상 코트면: 수동 고정(_auto False)만 유지
-                            if not _is_auto_slot(k):
-                                used_by_round_base[int(rr)].add(v)
-                                base_counts[v] += 1
-
-                
-                # ✅ (1-추가) 이미 고정된 입력 때문에 '최대 1게임 차'가 불가능한지 사전 체크
-                try:
-                    _vals0 = [int(base_counts.get(p, 0)) for p in players_selected]
-                    _min0 = min(_vals0) if _vals0 else 0
-                    _max0 = max(_vals0) if _vals0 else 0
-                    if (_max0 - _min0) > 1:
-                        st.session_state["_manual_fair_fail_reason"] = (
-                            "이미 수동으로 고정된 입력(또는 선택된 게임 외 코트) 때문에 "
-                            "인당 경기수 차이를 최대 1게임으로 맞추는 것이 불가능합니다."
-                        )
-                        return {}, set()
-                except Exception:
-                    pass
-
-# ✅ (2) 여러 번 시도해서 공평성 + 제약을 만족하는 해를 찾는다.
-                for attempt in range(MAX_RETRY):
-                    rng = random.Random(int(seed_base) + attempt * 9973)
-                    counts = Counter(base_counts)
-                    used_by_round = {rr: set(vs) for rr, vs in used_by_round_base.items()}
-                    plan = {}
-                    auto_keys = set()
-
-                    ok = True
-
-                    for rr in range(1, int(total_rounds) + 1):
-                        used = used_by_round[int(rr)]
-
-                        # 라운드 내: 코트별로 채우되, 타입은 게임별 선택을 따름
-                        for cc in range(1, int(court_count) + 1):
-                            if not _is_target(rr, cc):
-                                continue
-
-                            grp_tag = _court_group_tag(view_mode_for_schedule, cc)
-                            pool = _pool_by_group(players_selected, grp_tag)
-
-                            mode = _desired_mode_for_game(rr, cc, court_count)
-
-                            if gtype == "단식":
-                                k1 = _manual_key(rr, cc, 1, gtype)
-                                k2 = _manual_key(rr, cc, 2, gtype)
-                                v1 = _get_manual_value(k1)
-                                v2 = _get_manual_value(k2)
-
-                                keep1 = (v1 != "선택" and (not _is_auto_slot(k1)))
-                                keep2 = (v2 != "선택" and (not _is_auto_slot(k2)))
-
-                                v1_eff = v1 if keep1 else "선택"
-                                v2_eff = v2 if keep2 else "선택"
-
-                                # 이미 keep된 값은 base에서 counts/used에 반영돼 있음
-                                empty = []
-                                if v1_eff == "선택":
-                                    empty.append(k1)
-                                if v2_eff == "선택":
-                                    empty.append(k2)
-
-                                if not empty:
-                                    continue
-
-                                avail = [p for p in pool if p not in used]
-
-                                # 단식에서 '남/여' 강제 모드 처리
-                                if mode in ("남성복식", "여성복식"):
-                                    need_g = "남" if mode == "남성복식" else "여"
-                                    avail = [p for p in avail if _gender_of(p) == need_g]
-                                elif mode == "동성복식":
-                                    # 가능한 한 같은 성별(이미 한 명이 있으면 그 성별 우선)
-                                    fixed = v1_eff if v1_eff != "선택" else v2_eff if v2_eff != "선택" else None
-                                    if fixed:
-                                        g_fixed = _gender_of(fixed)
-                                        cand = [p for p in avail if _gender_of(p) == g_fixed]
-                                        if cand:
-                                            avail = cand
-
-                                # 채우기
-                                if len(empty) == 2:
-                                    a = _fair_pick(avail, counts, rng, ntrp_on=bool(manual_fill_ntrp))
-                                    if a is None:
-                                        ok = False; break
-                                    used.add(a); counts[a] += 1
-                                    plan[empty[0]] = a; auto_keys.add(empty[0])
-                                    avail2 = [p for p in avail if p != a and p not in used]
-                                    b = _fair_pick(avail2, counts, rng, ref_ntrp=_ntrp_of(a), ntrp_on=bool(manual_fill_ntrp))
-                                    if b is None:
-                                        ok = False; break
-                                    used.add(b); counts[b] += 1
-                                    plan[empty[1]] = b; auto_keys.add(empty[1])
-                                else:
-                                    # 하나만 비었을 때
-                                    fixed = v1_eff if empty[0] == k2 else v2_eff
-                                    ref = _ntrp_of(fixed) if fixed != "선택" else None
-                                    a = _fair_pick(avail, counts, rng, ref_ntrp=ref, ntrp_on=bool(manual_fill_ntrp))
-                                    if a is None:
-                                        ok = False; break
-                                    used.add(a); counts[a] += 1
-                                    plan[empty[0]] = a; auto_keys.add(empty[0])
-
-                                continue
-
-                            # ---------------- 복식 ----------------
-                            ks = [_manual_key(rr, cc, i, gtype) for i in (1, 2, 3, 4)]
-                            vs = [_get_manual_value(k) for k in ks]
-
-                            keep_mask = [(v != "선택" and (not _is_auto_slot(k))) for k, v in zip(ks, vs)]
-                            eff_vs = [v if keep else "선택" for v, keep in zip(vs, keep_mask)]
-                            empty_keys = [k for k, v in zip(ks, eff_vs) if v == "선택"]
-
-                            if not empty_keys:
-                                continue
-
-                            avail = [p for p in pool if p not in used]
-                            men = [p for p in avail if _gender_of(p) == "남"]
-                            women = [p for p in avail if _gender_of(p) == "여"]
-
-                            # ✅ 모드별로 빈칸 채우기
-                            pos_map = {kk: i for i, kk in enumerate(ks)}
-                            eff_tmp = list(eff_vs)
-
-                            def _take(p):
-                                if p is None:
-                                    return False
-                                if p in used:
-                                    return False
-                                used.add(p)
-                                counts[p] += 1
-                                return True
-
-                            if mode == "혼합복식":
-                                # 팀(0,1) / (2,3)이 무조건 남+여 / 남+여가 되도록
-                                for kk in empty_keys:
-                                    i = pos_map.get(kk, None)
-                                    if i is None:
-                                        ok = False; break
-
-                                    mate_i = (i - 1) if (i % 2 == 1) else (i + 1)
-                                    mate = eff_tmp[mate_i] if 0 <= mate_i < 4 else "선택"
-
-                                    if mate != "선택":
-                                        need_g = "여" if _gender_of(mate) == "남" else "남"
-                                        cand = men if need_g == "남" else women
-                                        pick = _fair_pick(cand, counts, rng, ref_ntrp=_ntrp_of(mate), ntrp_on=bool(manual_fill_ntrp))
-                                        if pick is None:
-                                            pick = _fair_pick(men + women, counts, rng, ref_ntrp=_ntrp_of(mate), ntrp_on=bool(manual_fill_ntrp))
-                                    else:
-                                        prefer_g = "남" if i in (0, 2) else "여"
-                                        primary = men if prefer_g == "남" else women
-                                        secondary = women if prefer_g == "남" else men
-                                        pick = _fair_pick(primary, counts, rng, ntrp_on=bool(manual_fill_ntrp))                                             or _fair_pick(secondary, counts, rng, ntrp_on=bool(manual_fill_ntrp))                                             or _fair_pick(men + women, counts, rng, ntrp_on=bool(manual_fill_ntrp))
-
-                                    if pick is None:
-                                        ok = False; break
-
-                                    if not _take(pick):
-                                        ok = False; break
-
-                                    plan[kk] = pick
-                                    auto_keys.add(kk)
-                                    eff_tmp[i] = pick
-
-                                    if pick in men:
-                                        men.remove(pick)
-                                    if pick in women:
-                                        women.remove(pick)
-
-                                if not ok:
-                                    break
-
-                            else:
-                                # 동성/남성/여성/랜덤
-                                if mode == "남성복식":
-                                    desired = "남"
-                                elif mode == "여성복식":
-                                    desired = "여"
-                                elif mode == "동성복식":
-                                    # 이미 고정된 값이 있으면 그 성별 우선
-                                    fixed = next((x for x in eff_tmp if x != "선택"), None)
-                                    desired = _gender_of(fixed) if fixed else None
-                                    if desired is None:
-                                        # 가능한 쪽 우선
-                                        need = len(empty_keys)
-                                        can_m = len([p for p in men if counts.get(p,0) <= (min(counts.values())+1)]) >= need
-                                        can_f = len([p for p in women if counts.get(p,0) <= (min(counts.values())+1)]) >= need
-                                        if can_m and can_f:
-                                            desired = rng.choice(["남","여"])
-                                        elif can_m:
-                                            desired = "남"
-                                        elif can_f:
-                                            desired = "여"
-                                        else:
-                                            desired = None
-                                else:
-                                    desired = None  # 랜덤
-
-                                # 후보군 구성(엄격: 해당 성별 인원 부족하면 실패 → 재시도)
-                                if desired == "남":
-                                    cand_base = list(men)
-                                elif desired == "여":
-                                    cand_base = list(women)
-                                else:
-                                    cand_base = list(men + women)
-
-                                # 채우기(순차)
-                                for kk in empty_keys:
-                                    i = pos_map.get(kk, None)
-                                    mate_i = (i - 1) if (i % 2 == 1) else (i + 1)
-                                    mate = eff_tmp[mate_i] if 0 <= mate_i < 4 else "선택"
-                                    ref = _ntrp_of(mate) if mate != "선택" else None
-
-                                    pick = _fair_pick(cand_base, counts, rng, ref_ntrp=ref, ntrp_on=bool(manual_fill_ntrp))
-                                    if pick is None:
-                                        ok = False; break
-
-                                    if not _take(pick):
-                                        ok = False; break
-
-                                    plan[kk] = pick
-                                    auto_keys.add(kk)
-                                    eff_tmp[i] = pick
-
-                                    if pick in cand_base:
-                                        cand_base.remove(pick)
-                                    if pick in men:
-                                        men.remove(pick)
-                                    if pick in women:
-                                        women.remove(pick)
-
-                                if not ok:
-                                    break
-
-                        if not ok:
-                            break
-
-                    if ok:
-                        # ✅ 최종적으로도 인당 경기수 차이가 최대 1게임인지 확인
-                        try:
-                            _vals1 = [int(counts.get(p, 0)) for p in players_selected]
-                            if _vals1 and (max(_vals1) - min(_vals1) > 1):
-                                ok = False
-                            else:
-                                st.session_state["_manual_fair_fail_reason"] = None
-                                return plan, auto_keys
-                        except Exception:
-                            st.session_state["_manual_fair_fail_reason"] = None
-                            return plan, auto_keys
-
-
-                                # ✅ 실패 사유 기록: 성별 인원/모드 제약 때문에 '최대 1게임 차' 배정이 불가능할 수 있습니다.
-                reason = None
-                try:
-                    men_players = [p for p in players_selected if _gender_of(p) == "남"]
-                    women_players = [p for p in players_selected if _gender_of(p) == "여"]
-                    M, F = len(men_players), len(women_players)
-
-                    # 이번 실행에서 실제로 채우려는 슬롯 수(빈칸 + 자동 슬롯 교체)
-                    fill_slots = 0
-                    strict_m = 0
-                    strict_f = 0
-
-                    for rr in range(1, int(total_rounds) + 1):
-                        for cc in range(1, int(court_count) + 1):
-                            if not _is_target(rr, cc):
-                                continue
-
-                            mode = _desired_mode_for_game(rr, cc, court_count)
-
-                            # 게임(코트) 단위로 요구되는 성별 슬롯(엄격 모드만 하한으로 계산)
-                            if gtype == "복식":
-                                if mode == "혼합복식":
-                                    strict_m += 2
-                                    strict_f += 2
-                                elif mode == "남성복식":
-                                    strict_m += 4
-                                elif mode == "여성복식":
-                                    strict_f += 4
-                            else:
-                                # 단식: 2명
-                                if mode == "남성복식":
-                                    strict_m += 2
-                                elif mode == "여성복식":
-                                    strict_f += 2
-
-                            # 실제 교체/채우기 대상 슬롯 수
-                            if gtype == "단식":
-                                ks2 = [_manual_key(rr, cc, 1, gtype), _manual_key(rr, cc, 2, gtype)]
-                            else:
-                                ks2 = [_manual_key(rr, cc, i, gtype) for i in (1, 2, 3, 4)]
-                            for k in ks2:
-                                v = _get_manual_value(k)
-                                if (v == "선택") or _is_auto_slot(k):
-                                    fill_slots += 1
-
-                    total_slots_after = int(sum(base_counts.values())) + int(fill_slots)
-                    N = max(1, len(players_selected))
-                    t = total_slots_after // N
-                    r = total_slots_after % N
-                    max_per = t + (1 if r else 0)
-
-                    # 엄격 하한이 성별 최대 수용치를 넘으면 사실상 불가능
-                    if (M == 0 and strict_m > 0) or (F == 0 and strict_f > 0):
-                        reason = "선택한 대진 방식에서 요구하는 성별 조합을 만족할 수 있는 인원이 부족해서, 인당 경기수 차이를 최대 1게임으로 맞출 수 없습니다."
-                    elif (M > 0 and strict_m > M * max_per) or (F > 0 and strict_f > F * max_per):
-                        reason = (
-                            "참가자 성별 인원수와 선택한 대진 방식(혼합/남성/여성 등) 제약 때문에, "
-                            "인당 경기수 차이를 최대 1게임으로 맞추는 배정이 불가능합니다."
-                        )
-                except Exception:
-                    reason = None
-
-                if not reason:
-                    reason = (
-                        "현재 선택한 조건(성별/코트별 방식/라운드 내 중복 방지/NTRP 등)에서 "
-                        "인당 경기수 차이를 최대 1게임으로 맞추는 배정을 찾지 못했습니다. "
-                        "옵션을 완화하거나(코트/라운드/대진 방식) 인원을 조정해 주세요."
-                    )
-
-                st.session_state["_manual_fair_fail_reason"] = reason
-                return {}, set()
-            if fill_all_clicked and players_selected:
-                # ✅ 버튼 누를 때마다 결과가 달라지게
-                seed_base = int(random.random() * 1_000_000_000)
-                st.session_state["_manual_fill_seed"] = seed_base
-                st.session_state["_manual_fair_fail_reason"] = None
-
-                # ✅ (전체/체크 여부와 무관하게) 공평성(최대 1게임 차) + 성별/코트별 제약을 항상 적용
-                plan_all, auto_all = _fill_manual_fair(target_by_round=None, seed_base=seed_base)
-
-                if plan_all:
-                    _apply_plan_to_state(plan_all, auto_all)
-                else:
-                    reason = st.session_state.get("_manual_fair_fail_reason")
-                    if reason:
-                        st.warning(reason)
-                    else:
-                        st.info("이미 채울 빈칸이 없습니다.")
-
-            # ✅ 게임 UI (라운드 구분 없이 나열 + 체크된 게임만 처리)
-            # -------------------------
-
-            # 게임 목록(라운드/코트 기반) → 화면은 라운드 구분 없이 "게임 번호"로만 보여줌
-            games = []  # [(game_no, r, c)]
-            gno = 0
-            for rr in range(1, int(total_rounds) + 1):
-                for cc in range(1, int(court_count) + 1):
-                    gno += 1
-                    games.append((gno, rr, cc))
-
-            # ✅ 체크박스 키 정리(라운드/코트 수가 바뀌면 오래된 체크 제거)
-            valid_chk = {f"chk_game_{gno}" for (gno, _r, _c) in games}
-            for k in list(st.session_state.keys()):
-                if isinstance(k, str) and k.startswith("chk_game_") and k not in valid_chk:
-                    st.session_state.pop(k, None)
-
-            # ✅ 전체 초기화 눌렀으면 체크도 같이 해제
-            if clear_all_clicked:
-                for k in valid_chk:
-                    st.session_state[k] = False
-
-            # ✅ 체크된 게임 집계
-            selected_games = [(rr, cc) for (gno, rr, cc) in games if st.session_state.get(f"chk_game_{gno}", False)]
-
-            # ✅ 체크된 게임용 버튼 (✅ 모바일에서도 한 줄로)
-            t1, t2 = st.columns(2)
-            with t1:
-                st.markdown('<div class="main-primary-btn">', unsafe_allow_html=True)
-                fill_checked_clicked = st.button(
-                    "체크된 게임만 빈칸 채우기",
-                    use_container_width=True,
-                    key="btn_fill_checked_games",
-                    disabled=(not players_selected),
-                )
-                st.markdown("</div>", unsafe_allow_html=True)
-
-            with t2:
-                st.markdown('<div class="main-danger-btn">', unsafe_allow_html=True)
-                clear_checked_clicked = st.button(
-                    "체크된 게임만 초기화",
-                    use_container_width=True,
-                    key="btn_clear_checked_games",
-                )
-                st.markdown("</div>", unsafe_allow_html=True)
-
-            st.markdown(
-                f"<div style='text-align:right; font-weight:800; color:#374151; margin-top:0.3rem;'>선택됨: {len(selected_games)}게임</div>",
-                unsafe_allow_html=True,
-            )
-
-            
-            # ✅ 전체 선택 / 전체 해제 (체크박스)
-            s_all, s_none = st.columns(2)
-            with s_all:
-                select_all_clicked = st.button(
-                    "전체 선택",
-                    use_container_width=True,
-                    key="btn_select_all_games",
-                    disabled=(len(games) == 0),
-                )
-            with s_none:
-                deselect_all_clicked = st.button(
-                    "전체 해제",
-                    use_container_width=True,
-                    key="btn_deselect_all_games",
-                    disabled=(len(games) == 0),
-                )
-
-            if select_all_clicked:
-                for (gno, rr, cc) in games:
-                    st.session_state[f"chk_game_{gno}"] = True
-                safe_rerun()
-
-            if deselect_all_clicked:
-                for (gno, rr, cc) in games:
-                    st.session_state[f"chk_game_{gno}"] = False
-                safe_rerun()
-
-# ✅ 체크된 게임 초기화
-            if clear_checked_clicked and selected_games:
-                for rr, cc in selected_games:
-                    if gtype == "단식":
-                        keys = [_manual_key(rr, cc, 1, gtype), _manual_key(rr, cc, 2, gtype)]
-                    else:
-                        keys = [_manual_key(rr, cc, i, gtype) for i in (1, 2, 3, 4)]
-                    for k in keys:
-                        st.session_state[k] = "선택"
-                        st.session_state[f"_prev_{k}"] = "선택"
-                        st.session_state[f"_auto_{k}"] = False
-
-            # ✅ 체크된 게임 빈칸 채우기
-            if fill_checked_clicked and players_selected and selected_games:
-
-                # ✅ 버튼 누를 때마다 결과가 달라지게
-                seed_base = int(random.random() * 1_000_000_000)
-                st.session_state["_manual_fill_seed"] = seed_base
-                st.session_state["_manual_fair_fail_reason"] = None
-
-                # 라운드별로 묶어서, 체크된 코트만 채우기 (라운드 내 중복 방지 유지)
-                by_round = {}
-                for rr, cc in selected_games:
-                    by_round.setdefault(int(rr), []).append(int(cc))
-
-                # ✅ 공평성(최대 1게임 차) + 성별/코트별 제약을 항상 적용
-                plan_all, auto_all = _fill_manual_fair(target_by_round=by_round, seed_base=seed_base)
-
-                if plan_all:
-                    _apply_plan_to_state(plan_all, auto_all)
-                else:
-                    reason = st.session_state.get("_manual_fair_fail_reason")
-                    if reason:
-                        st.warning(reason)
-                    else:
-                        st.info("체크된 게임에서 채울 빈칸이 없습니다.")
-
-            st.markdown("<div style='height:0.4rem;'></div>", unsafe_allow_html=True)
-
-            # -------------------------
-            # ✅ 게임 나열 렌더
-            # -------------------------
-            for (gno, rr, cc) in games:
-
-                # ✅ 라운드(=게임) 경계선: 코트 수 단위로 구분
-                if int(cc) == 1 and int(rr) > 1:
-                    st.markdown("<div class='msa-round-divider'></div>", unsafe_allow_html=True)
-
-                # 헤더(체크 + 게임명)
-                h1, h2 = st.columns([0.3, 9.1], vertical_alignment="center")
-                with h1:
-                    st.checkbox(
-                        "",
-                        value=bool(st.session_state.get(f"chk_game_{gno}", False)),
-                        key=f"chk_game_{gno}",
-                        label_visibility="collapsed",
-                    )
-                with h2:
-                    # ✅ 코트 옆에 남/녀 칩 표시(직관적으로)
-                    if gtype == '단식':
-                        _ks = [_manual_key(rr, cc, 1, gtype), _manual_key(rr, cc, 2, gtype)]
-                    else:
-                        _ks = [_manual_key(rr, cc, i, gtype) for i in (1, 2, 3, 4)]
-                    _vals = [st.session_state.get(k, '선택') for k in _ks]
-                    _chips = _match_chips_html(_vals, gtype)
-                    st.markdown(
-                        f"<div class='msc-gamehead'><div style='font-weight:900;'>게임 {rr} · 코트 {cc}</div><div class='msc-chip-wrap'>{_chips}</div></div>",
-                        unsafe_allow_html=True,
-                    )
-
-                # ✅ 코트(게임)별 대진 방식 선택 (커스텀 모드 ON일 때)
-                if court_custom_on:
-                    _court_mode_key = f"court_mode_game_{gno}"
-                    if _court_mode_key not in st.session_state:
-                        # 전역 성별 옵션을 기본값으로 매핑
-                        if manual_gender_mode == "혼합":
-                            st.session_state[_court_mode_key] = "혼합복식"
-                        elif manual_gender_mode == "동성":
-                            st.session_state[_court_mode_key] = (manual_samegender_submode or "동성복식")
-                        else:
-                            st.session_state[_court_mode_key] = "랜덤"
-
-                    st.radio(
-                        "",
-                        ["랜덤", "동성복식", "남성복식", "여성복식", "혼합복식"],
-                        horizontal=True,
-                        key=_court_mode_key,
-                        label_visibility="collapsed",
-                    )
-
-
-
-                # 코트 그룹(조별 분리) 반영
-                grp_tag = _court_group_tag(view_mode_for_schedule, cc)
-                pool = _pool_by_group(players_selected, grp_tag)
-
-                _render_manual_court_selectboxes(
-                    r=rr,
-                    c=cc,
-                    pool=pool,
-                    court_count=court_count,
-                    gtype=gtype,
-                )
-
-                st.markdown("<div style='height:0.6rem;'></div>", unsafe_allow_html=True)
-
-
-            # -------------------------
-            # 수동 대진 리스트 만들기 (실제 위젯 값 기준)
-            # -------------------------
-            manual_schedule = []
-            for rr in range(1, int(total_rounds) + 1):
-                for cc in range(1, int(court_count) + 1):
-                    if gtype == "단식":
-                        k1 = _manual_key(rr, cc, 1, gtype)
-                        k2 = _manual_key(rr, cc, 2, gtype)
-                        a = st.session_state.get(k1, "선택")
-                        b = st.session_state.get(k2, "선택")
-                        if a != "선택" and b != "선택" and a != b:
-                            manual_schedule.append(("단식", [a], [b], cc))
-                    else:
-                        ks = [_manual_key(rr, cc, i, gtype) for i in (1, 2, 3, 4)]
-                        vals = [st.session_state.get(k, "선택") for k in ks]
-                        if all(v != "선택" for v in vals) and len(set(vals)) == 4:
-                            manual_schedule.append(("복식", [vals[0], vals[1]], [vals[2], vals[3]], cc))
-
-            st.session_state.today_schedule = manual_schedule
-
-        # =========================================================
-        # 5. 대진표 생성 / 미리보기 / 저장  (✅ 자동/수동 공통 영역)
-        # =========================================================
-        st.markdown("---")
-        st.subheader("5. 대진표 생성 / 미리보기")
-
-        col_gen, col_edit, col_save = st.columns(3)
-
-        with col_gen:
-            st.markdown('<div class="main-primary-btn">', unsafe_allow_html=True)
-            gen_clicked = st.button("대진표 생성하기", use_container_width=True, key="gen_btn")
-            st.markdown("</div>", unsafe_allow_html=True)
-
-        with col_edit:
-            st.markdown('<div class="main-secondary-btn">', unsafe_allow_html=True)
-            edit_clicked = st.button("✏️ 대진표 수정", use_container_width=True, key="edit_btn")
-            st.markdown("</div>", unsafe_allow_html=True)
-
-        with col_save:
-            st.markdown('<div class="main-primary-btn">', unsafe_allow_html=True)
-            save_clicked = st.button("저장하기", use_container_width=True, key="save_btn")
-            st.markdown("</div>", unsafe_allow_html=True)
-
-
-        def build_best_auto_schedule():
-
-            if not players_selected:
-                return []
-
-            # ✅ 팀별 자동 모드: 팀 색상 기준 대진 생성 + 대전방식 + NTRP 적용 + seed
-            if is_team_auto_mode:
-                team_count = int(st.session_state.get("team_count", 2))
-                team_assign = st.session_state.get("team_assign", {})
-
-                mode_name_team = mode_label if gtype == "복식" else singles_mode
-
-                return build_team_mode_schedule(
-                    players_selected=players_selected,
-                    team_assign=team_assign,
-                    base_gtype=gtype,
-                    total_rounds=int(total_rounds),
-                    court_count=int(court_count),
-                    team_count=team_count,
-                    mode_name=str(mode_name_team),
-                    use_ntrp=bool(use_ntrp),
-                    roster_by_name=roster_by_name,
-                    seed=int(st.session_state.get("team_gen_seed", 0)),
-                )
-
-
-            # AA 모드
-            if (gtype == "복식") and ("한울 AA" in str(mode_label)):
-                ordered = players_selected[:]
-                if bool(st.session_state.get("aa_seed_enabled", False)):
-                    ordered, _ = apply_hanul_aa_seed_order(
-                        players_selected,
-                        st.session_state.get("aa_seed_players", []) or [],
-                    )
-                return build_hanul_aa_schedule(ordered, int(court_count))
-
-            # 일반 모드: 목표 게임수 추정
-            if auto_basis == "개인당 경기 수 기준":
-                target_games = int(max_games)
-            else:
-                schedule_len_guess = int(total_rounds) * int(court_count)
-                total_slots = schedule_len_guess * (4 if gtype == "복식" else 2)
-                target_games = max(1, int(round(total_slots / max(1, len(players_selected)))))
-
-            mode_name = mode_label if gtype == "복식" else singles_mode
-
-            def build_group(players_group, cc):
-                if len(players_group) < (4 if gtype == "복식" else 2):
-                    return []
-
-                if gtype == "복식":
-                    mode_arg = "랜덤 복식"
-                    if mode_name == "동성복식 (남+남 / 여+여)":
-                        mode_arg = "동성복식"
-                    elif mode_name == "혼합복식 (남+여 짝)":
-                        mode_arg = "혼합복식"
-
-                    if auto_basis == "총 게임 수(라운드 수) 기준":
-                        return build_schedule_by_total_rounds(
-                            players=players_group,
-                            gtype="복식",
-                            court_count=int(cc),
-                            total_rounds=int(total_rounds),
-                            mode_name=mode_name,
-                            use_ntrp=bool(use_ntrp),
-                            roster_by_name=roster_by_name,
-                        )
-
-                    return build_doubles_schedule(
-                        players=players_group,
-                        max_games=int(target_games),
-                        court_count=int(cc),
-                        mode=mode_arg,
-                        use_ntrp=bool(use_ntrp),
-                        group_only=bool(group_only),
-                        roster_by_name=roster_by_name,
-                    )
-
-                else:
-                    mode_arg = "랜덤 단식"
-                    if mode_name == "동성 단식":
-                        mode_arg = "동성 단식"
-                    elif mode_name == "혼합 단식":
-                        mode_arg = "혼합 단식"
-
-                    if auto_basis == "총 게임 수(라운드 수) 기준":
-                        return build_schedule_by_total_rounds(
-                            players=players_group,
-                            gtype="단식",
-                            court_count=int(cc),
-                            total_rounds=int(total_rounds),
-                            mode_name=mode_name,
-                            use_ntrp=bool(use_ntrp),
-                            roster_by_name=roster_by_name,
-                        )
-
-                    return build_singles_schedule(
-                        players=players_group,
-                        max_games=int(target_games),
-                        court_count=int(cc),
-                        mode=mode_arg,
-                        use_ntrp=bool(use_ntrp),
-                        group_only=bool(group_only),
-                        roster_by_name=roster_by_name,
-                    )
-
-            # ✅ 조별 분리면: A/B를 "코트 홀수/짝수"로 나눠 따로 생성 후 합침
-            if view_mode_for_schedule == "조별 분리 (A/B조)":
-                courts_A = [c for c in range(1, int(court_count) + 1) if c % 2 == 1]
-                courts_B = [c for c in range(1, int(court_count) + 1) if c % 2 == 0]
-                ca, cb = len(courts_A), len(courts_B)
-
-                if ca > 0 and cb > 0:
-                    players_A, players_B, _ = _split_players_ab(players_selected, roster_by_name)
-
-                    tries = 80
-                    for _ in range(tries):
-                        sched_A = build_group(players_A, ca)
-                        sched_B = build_group(players_B, cb)
-
-                        if sched_A and sched_B:
-                            sched_A = _remap_courts(sched_A, courts_A)
-                            sched_B = _remap_courts(sched_B, courts_B)
-
-                            if auto_basis == "총 게임 수(라운드 수) 기준":
-                                merged = _interleave_by_round(sched_A, sched_B, ca, cb, total_rounds=int(total_rounds))
-                            else:
-                                merged = _interleave_by_round(sched_A, sched_B, ca, cb, total_rounds=None)
-
-                            if merged:
-                                return merged
-
-                # 폴백: 조별 분리인데 한쪽 코트가 없거나 생성 실패하면 전체 생성
-                tries = 80
-                best = []
-                for _ in range(tries):
-                    cand = build_group(players_selected, int(court_count))
-                    if cand:
-                        best = cand
-                        break
-                return best
-
-
-            # ✅ 전체 모드면: 기존처럼 전체 생성 (버튼 시드로 매번 결과 달라지게)
-            tries = 80
-            best = []
-            base_seed = int(st.session_state.get("_gen_seed", 0) or 0)
-
-            for i in range(tries):
-                if base_seed:
-                    random.seed(base_seed + i)
-
-                cand = build_group(players_selected, int(court_count))
-                if cand:
-                    best = cand
-                    break
-
-            return best
-
-
-        # 생성
-        if gen_clicked:
-            if is_team_auto_mode:
-                st.session_state["team_gen_seed"] = int(st.session_state.get("team_gen_seed", 0)) + 1
-
-            # ✅ 버튼 누를 때마다 랜덤 시드 갱신
-            st.session_state["_gen_seed"] = int(random.random() * 1_000_000_000)
-
-            if len(players_selected) < (4 if gtype == "복식" else 2):
-                st.error("인원이 부족합니다.")
-            else:
-                if is_manual_mode:
-                    st.success("수동 입력 대진을 미리보기로 반영했어요.")
-                else:
-                    sched = build_best_auto_schedule()
-                    st.session_state.today_schedule = sched
-                    if not sched:
-                        st.warning("대진 생성에 실패했어요. 옵션을 완화하거나(코트/라운드/혼복/NTRP/조별) 인원을 확인해줘.")
-
-
-        schedule = st.session_state.get("today_schedule", [])
-
-        # =========================================================
-        # ✅ 대진표 수동 수정 모드
-        # =========================================================
-        if "edit_mode" not in st.session_state:
-            st.session_state["edit_mode"] = False
-
-        if edit_clicked:
-            # 버튼 누를 때마다 토글
-            st.session_state["edit_mode"] = not st.session_state["edit_mode"]
-
-        schedule = st.session_state.get("today_schedule", [])
-
-        def _flatten_players_from_schedule(sched):
-            s = []
-            for gt, t1, t2, _ in sched:
-                s += list(t1) + list(t2)
-            return s
-
-        def _validate_no_duplicate_in_match(gt, t1, t2):
-            # 경기 1개 안에서 중복이면 False
-            allp = list(t1) + list(t2)
-            return len(allp) == len(set(allp))
-
-        def _available_options_for_edit():
-            # 수정 가능한 후보: 오늘 참가자(=players_selected)
-            return ["선택"] + sorted(players_selected)
-
-        if st.session_state["edit_mode"] and schedule:
-            st.markdown("### ✏️ 대진표 수정 모드")
-            st.caption("경기 1개씩 선수만 변경하실 수 있습니다. (한 경기 안에서 같은 사람이 중복되면 저장이 되지 않습니다.)")
-
-            opts_all = _available_options_for_edit()
-
-            def _opts_excluding_same_match(cur, others):
-                """같은 경기(한 expander) 안에서 이미 선택된 다른 선수는 옵션에서 제외합니다.
-                - 단, 현재 선택값(cur)은 옵션에 반드시 포함시켜 selectbox 오류를 방지합니다.
-                """
-                _others = {o for o in others if o and o != "선택"}
-                _opts = ["선택"] + [p for p in opts_all if p != "선택" and p not in _others]
-                if cur and cur != "선택" and cur not in _opts:
-                    _opts.insert(1, cur)
-                _idx = _opts.index(cur) if cur in _opts else 0
-                return _opts, _idx
-
-
-            edited = []   # 최종 수정된 스케줄
-
-            # ✅ 각 경기별로 수정 UI
-            for idx, (gt, t1, t2, court) in enumerate(schedule, start=1):
-                with st.expander(f"#{idx} · 코트 {court} · {gt}  (수정)", expanded=(idx == 1)):
-
-                    if gt == "단식":
-                        k_a = f"edit_{idx}_a"
-                        k_b = f"edit_{idx}_b"
-
-                        # 초기값 주입
-                        if k_a not in st.session_state:
-                            st.session_state[k_a] = t1[0] if t1 else "선택"
-                        if k_b not in st.session_state:
-                            st.session_state[k_b] = t2[0] if t2 else "선택"
-
-                        c1, c2, c3 = st.columns([3.2, 0.9, 3.2], vertical_alignment="center")
-                        with c1:
-                            cur_a = st.session_state.get(k_a, "선택")
-                            cur_b = st.session_state.get(k_b, "선택")
-                            _opts_a, _idx_a = _opts_excluding_same_match(cur_a, [cur_b])
-                            a = st.selectbox("p1", _opts_a, index=_idx_a, key=k_a, label_visibility="collapsed")
-                        with c2:
-                            st.markdown("<div style='text-align:center; font-weight:900;'>VS</div>", unsafe_allow_html=True)
-                        with c3:
-                            cur_a = st.session_state.get(k_a, "선택")
-                            cur_b = st.session_state.get(k_b, "선택")
-                            _opts_b, _idx_b = _opts_excluding_same_match(cur_b, [cur_a])
-                            b = st.selectbox("p2", _opts_b, index=_idx_b, key=k_b, label_visibility="collapsed")
-
-                        new_t1 = [a] if a != "선택" else t1
-                        new_t2 = [b] if b != "선택" else t2
-
-                        if not _validate_no_duplicate_in_match(gt, new_t1, new_t2):
-                            st.error("❌ 같은 경기에서 같은 선수가 중복되었습니다. 다른 선수로 변경해 주세요.")
-                        edited.append((gt, new_t1, new_t2, court))
-
-                    else:
-                        # 복식
-                        keys = [f"edit_{idx}_p{i}" for i in (1, 2, 3, 4)]
-                        init_vals = (t1 + t2) if (t1 and t2) else ["선택", "선택", "선택", "선택"]
-
-                        for i, k in enumerate(keys):
-                            if k not in st.session_state:
-                                st.session_state[k] = init_vals[i] if i < len(init_vals) else "선택"
-
-                        col1, col2, colVS, col3, col4 = st.columns([2.6, 2.6, 0.9, 2.6, 2.6], vertical_alignment="center")
-
-                        with col1:
-                            cur1 = st.session_state.get(keys[0], "선택")
-                            cur2 = st.session_state.get(keys[1], "선택")
-                            cur3 = st.session_state.get(keys[2], "선택")
-                            cur4 = st.session_state.get(keys[3], "선택")
-                            _opts1, _idx1 = _opts_excluding_same_match(cur1, [cur2, cur3, cur4])
-                            p1 = st.selectbox("t1a", _opts1, index=_idx1, key=keys[0], label_visibility="collapsed")
-                        with col2:
-                            cur1 = st.session_state.get(keys[0], "선택")
-                            cur2 = st.session_state.get(keys[1], "선택")
-                            cur3 = st.session_state.get(keys[2], "선택")
-                            cur4 = st.session_state.get(keys[3], "선택")
-                            _opts2, _idx2 = _opts_excluding_same_match(cur2, [cur1, cur3, cur4])
-                            p2 = st.selectbox("t1b", _opts2, index=_idx2, key=keys[1], label_visibility="collapsed")
-                        with colVS:
-                            st.markdown("<div style='text-align:center; font-weight:900;'>VS</div>", unsafe_allow_html=True)
-                        with col3:
-                            cur1 = st.session_state.get(keys[0], "선택")
-                            cur2 = st.session_state.get(keys[1], "선택")
-                            cur3 = st.session_state.get(keys[2], "선택")
-                            cur4 = st.session_state.get(keys[3], "선택")
-                            _opts3, _idx3 = _opts_excluding_same_match(cur3, [cur1, cur2, cur4])
-                            p3 = st.selectbox("t2a", _opts3, index=_idx3, key=keys[2], label_visibility="collapsed")
-                        with col4:
-                            cur1 = st.session_state.get(keys[0], "선택")
-                            cur2 = st.session_state.get(keys[1], "선택")
-                            cur3 = st.session_state.get(keys[2], "선택")
-                            cur4 = st.session_state.get(keys[3], "선택")
-                            _opts4, _idx4 = _opts_excluding_same_match(cur4, [cur1, cur2, cur3])
-                            p4 = st.selectbox("t2b", _opts4, index=_idx4, key=keys[3], label_visibility="collapsed")
-
-                        new_t1 = [p1, p2] if ("선택" not in (p1, p2)) else t1
-                        new_t2 = [p3, p4] if ("선택" not in (p3, p4)) else t2
-
-                        if not _validate_no_duplicate_in_match(gt, new_t1, new_t2):
-                            st.error("❌ 같은 경기에서 같은 선수가 중복되었습니다. 다른 선수로 변경해 주세요.")
-
-                        edited.append((gt, new_t1, new_t2, court))
-
-            # ✅ 수정 적용 버튼
-            apply_col1, apply_col2 = st.columns([1.7, 2.3])
-            with apply_col1:
-                st.markdown('<div class="main-primary-btn">', unsafe_allow_html=True)
-                apply_edit = st.button("✅ 수정 적용하기", use_container_width=True, key="apply_edit_btn")
-                st.markdown("</div>", unsafe_allow_html=True)
-            with apply_col2:
-                st.caption("“수정 적용하기”를 누르면 미리보기/저장에 반영됩니다.")
-
-            if apply_edit:
-                # 전체 스케줄에서 경기 단위 중복 검사(경기 안만)
-                ok = True
-                for gt, t1, t2, _ in edited:
-                    if not _validate_no_duplicate_in_match(gt, t1, t2):
-                        ok = False
-                        break
-
-                if not ok:
-                    st.error("수정한 경기 중 중복 선수가 있습니다. 오류가 표시된 경기부터 수정해 주세요.")
-                else:
-                    st.session_state["today_schedule"] = edited
-                    st.success("수정 내용이 반영되었습니다!")
-                    st.session_state["edit_mode"] = False
-                    safe_rerun()
-
-
-        # =========================================================
-        # ✅ 미리보기
-        # =========================================================
-        if schedule:
-            st.markdown("### ✅ 오늘 대진표 미리보기")
-
-
-            # ✅ 게임(라운드) 단위 경계선 (코트 사이 X / 게임 사이 O)
-            def _render_preview_rows(_sched_list, _fallback_group_size: int = 0):
-                if not _sched_list:
-                    return
-
-                n_total = len(_sched_list)
-
-                # fallback: court_count 기반 그룹 크기 (필요할 때만 사용)
-                try:
-                    grp = int(_fallback_group_size)
-                except Exception:
-                    grp = 0
-                grp = max(0, grp)
-
-                for i, (gt, t1, t2, court) in enumerate(_sched_list, start=1):
-                    t1_badges = "".join(render_name_badge(n, roster_by_name) for n in t1)
-                    t2_badges = "".join(render_name_badge(n, roster_by_name) for n in t2)
-
-                    st.markdown(
-                        f"""
-                        <div class="msa-game-row">
-                          <div class="msa-game-meta">#{i} · 코트 {court} · {gt}</div>
-                          <div class="msa-game-line">
-                            <b>{t1_badges}</b> <span style="margin:0 6px;font-weight:800;">vs</span> <b>{t2_badges}</b>
-                          </div>
-                        </div>
-                        """,
-                        unsafe_allow_html=True,
-                    )
-
-                    # 다음 코트 번호가 리셋(작아짐/같아짐)되면 "다음 게임"으로 판단 → 이때만 경계선
-                    if i != n_total:
-                        try:
-                            cur_c = int(court)
-                        except Exception:
-                            cur_c = None
-                        try:
-                            nxt_c = int(_sched_list[i][3])  # 다음 항목의 court
-                        except Exception:
-                            nxt_c = None
-
-                        is_new_game = False
-                        if (cur_c is not None) and (nxt_c is not None) and (nxt_c < cur_c):
-                            is_new_game = True
-                        elif grp > 0 and (i % grp == 0):
-                            is_new_game = True
-
-                        if is_new_game:
-                            st.markdown('<div class="msa-round-divider"></div>', unsafe_allow_html=True)
-
-            if view_mode_for_schedule == "조별 분리 (A/B조)":
-                sched_A = [(gt, t1, t2, court) for (gt, t1, t2, court) in schedule if int(court) % 2 == 1]
-                sched_B = [(gt, t1, t2, court) for (gt, t1, t2, court) in schedule if int(court) % 2 == 0]
-
-                # A/B 조별 분리 시, 한 게임당 코트 수(홀수/짝수)를 fallback 으로 사용
-                odd_cnt = sum(1 for c in range(1, int(court_count) + 1) if c % 2 == 1)
-                even_cnt = sum(1 for c in range(1, int(court_count) + 1) if c % 2 == 0)
-
-                if sched_A:
-                    st.markdown("#### 🅰️ A조 (홀수 코트)")
-                    _render_preview_rows(sched_A, odd_cnt)
-
-                if sched_B:
-                    st.markdown("#### 🅱️ B조 (짝수 코트)")
-                    _render_preview_rows(sched_B, even_cnt)
-
-            else:
-                _render_preview_rows(schedule, int(court_count))
-
-            st.markdown("### 👤 인당 경기수")
-            cnt = count_player_games(schedule)
-
-            # ✅ 공평성 안내: 인당 경기수 차이는 최대 1게임이 되도록 시도합니다.
-            try:
-                _vals = [int(cnt.get(p, 0)) for p in players_selected]
-                if _vals:
-                    _diff = max(_vals) - min(_vals)
-                    if _diff > 1:
-                        _reason = st.session_state.get("_manual_fair_fail_reason")
-                        if _reason:
-                            st.warning(f"⚠️ 현재 인당 경기수 차이가 {_diff}게임입니다. {_reason}")
-                        else:
-                            st.warning(f"⚠️ 현재 인당 경기수 차이가 {_diff}게임입니다. (인원/성별/옵션 제약으로 공평하게 맞추기 어려울 수 있어요)")
-            except Exception:
-                pass
-
-            by_games = defaultdict(list)
-            for p in players_selected:
-                by_games[int(cnt.get(p, 0))].append(p)
-
-            for gnum in sorted(by_games.keys()):
-                names = by_games[gnum]
-                badges = ", ".join(render_name_badge(n, roster_by_name) for n in sorted(names))
-                st.markdown(f"**{gnum} :** {badges}", unsafe_allow_html=True)
-
-        # 저장
-        if save_clicked:
-            if not schedule:
-                st.warning("저장할 대진이 없습니다. 먼저 대진표를 생성해 주세요.")
-            else:
-                sessions = st.session_state.sessions
-                day_data = sessions.get(save_date_str, {})
-
-                if "results" not in day_data or not isinstance(day_data.get("results"), dict):
-                    day_data["results"] = {}
-
-                groups_snapshot = {n: roster_by_name.get(n, {}).get("group", "미배정") for n in players_selected}
-
-                day_data.update({
-                    "schedule": schedule,
-                    "court_type": st.session_state.get("today_court_type", COURT_TYPES[0]),
-                    "special_match": bool(st.session_state.get("special_match", False)),
-                    "groups_snapshot": groups_snapshot,
-                    "schedule_view_mode": view_mode_for_schedule,
-                })
-
-                sessions[save_date_str] = day_data
-                save_sessions(sessions)
-                st.session_state.sessions = sessions
-                st.success(f"{save_date_str} 대진이 저장됐어! (스페셜 매치: {'ON' if day_data['special_match'] else 'OFF'})")
-    # =========================================================
-    # 3) 경기 기록 / 통계 (날짜별)
-    # =========================================================
-
-    mobile_mode = st.session_state.get("mobile_mode", False)
-
-
-if not IS_OBSERVER:
-    render_tab_today_session(tab2)
-
-with tab3:
-    section_card("경기 기록 / 통계", "📊")
-
-    if not sessions:
-        st.info("저장된 경기 기록이 없습니다.")
-    else:
-        # 날짜 선택 (최근 날짜가 위로 오도록 정렬)
-        all_keys = list(sessions.keys())
-
-        # "전체" 키가 있을 수도 있으니 분리
-        has_total = "전체" in all_keys
-        date_keys = sorted(
-            [d for d in all_keys if d != "전체"],
-            reverse=True,           # 🔽 최근 날짜가 위로 오도록
-        )
-
-        if has_total:
-            # "전체"를 맨 위에 두고, 그 다음부터 최근 날짜 순
-            dates = ["전체"] + date_keys
-            # 기본 선택은 가장 최근 날짜
-            default_index = 1 if date_keys else 0
-        else:
-            dates = date_keys
-            default_index = 0 if date_keys else 0
-
-        sel_date = st.selectbox("날짜 선택", dates, index=default_index)
-
-
-        day_data = sessions.get(sel_date, {})
-        schedule = day_data.get("schedule", [])
-        results = day_data.get("results", {})
-
-        # 🔹 이 날짜의 스코어 보기/잠금 설정 읽기
-        saved_view = day_data.get("score_view_mode")        # "전체" 또는 "조별 보기 (A/B조)" 또는 None
-        lock_view = day_data.get("score_view_lock", False)  # True면 전체로 고정
-
-        if not IS_OBSERVER:
-            # 🏟 코트 종류 선택 (인조잔디 / 하드 / 클레이)
-            default_court = day_data.get("court_type", COURT_TYPES[0])
-            default_idx = get_index_or_default(COURT_TYPES, default_court, 0)
-
-            new_court = st.radio(
-                "코트 종류",
-                COURT_TYPES,
-                index=default_idx,
-                horizontal=True,
-            )
-
-            # 변경되면 바로 sessions.json에 저장
-            if new_court != default_court:
-                day_data["court_type"] = new_court
-                sessions[sel_date] = day_data
-                st.session_state.sessions = sessions
-                save_sessions(sessions)
-                st.caption("🏟️ 코트 종류가 저장되었습니다.")
-
-        # 날짜 전체일 때는 라디오 숨기고 자동 전체로
-        if sel_date == "전체":
-            view_mode_scores = "전체"
-        else:
-            # ✅ 옵저버/스코어보드: 클럽 설정에 따라 표시방식 선택 UI를 노출/숨김
-            if IS_OBSERVER:
-                allow_selector = bool(get_club_setting(DATA_FILE_PREFIX, "ui.observer_score_view_selector", False))
-                if allow_selector:
-                    _saved = day_data.get("score_view_mode", "전체")
-                    default_view_index = 1 if _saved == "전체" else 0  # ["조별", "전체"]에서 전체=1
-                    view_mode_scores = st.radio(
-                        "표시 방식",
-                        ["조별 보기 (A/B조)", "전체"],
-                        horizontal=True,
-                        key=f"obs_view_mode_scores_{DATA_FILE_PREFIX}_{sel_date}",
-                        index=default_view_index,
-                    )
-                else:
-                    view_mode_scores = "전체"
-            else:
-                # lock_view=True면 전체로 고정하고 라디오를 안 보여줌
-                if lock_view:
-                    view_mode_scores = "전체"
-                else:
-                    # ✅ 저장된 값이 없으면 기본은 "전체"
-                    saved_view = day_data.get("score_view_mode", "전체")
-                    default_view_index = 1 if saved_view == "전체" else 0  # ["조별", "전체"]에서 전체=1
-
-                    view_mode_scores = st.radio(
-                        "표시 방식",
-                        ["조별 보기 (A/B조)", "전체"],
-                        horizontal=True,
-                        key=f"tab3_view_mode_scores_{sel_date}",   # ✅ 날짜별 key로 분리
-                        index=default_view_index,
-                    )
-
-                    # ✅ 선택값 저장(다음에 다시 들어와도 유지)
-                    if view_mode_scores != saved_view:
-                        day_data["score_view_mode"] = view_mode_scores
-                        sessions[sel_date] = day_data
-                        st.session_state.sessions = sessions
-                        save_sessions(sessions)
-
-        # 나중에 다시 그리기 위한 요약 컨테이너
-
-        summary_container = st.container()
-
-        st.markdown("---")
-        # 1. 현재 스코어 요약 (표) - 최신 results 기준
-        # =====================================================
-        with summary_container:
-            st.subheader("1. 현재 스코어 요약 (표)")
-
-            if not schedule:
-                st.info("이 날짜에는 저장된 대진이 없습니다.")
-            else:
-                summary_view_mode = st.radio(
-                    "요약 보기 방식",
-                    ["대진별 보기", "개인별 보기"],
-                    horizontal=True,
-                    key="tab3_summary_view_mode",
-                )
-
-                games_A_sum, games_B_sum, games_other_sum = [], [], []
-                day_groups_snapshot = day_data.get("groups_snapshot")
-
-                per_player_all = defaultdict(list)
-                per_player_A = defaultdict(list)
-                per_player_B = defaultdict(list)
-                per_player_other = defaultdict(list)
-
-                for idx, (gtype, t1, t2, court) in enumerate(schedule, start=1):
-                    res = results.get(str(idx)) or results.get(idx) or {}
-                    s1, s2 = res.get("t1"), res.get("t2")
-
-                    row = {
-                        "게임": idx,
-                        "코트": court,
-                        "타입": gtype,
-                        "t1": t1,
-                        "t2": t2,
-                        "t1_score": s1,
-                        "t2_score": s2,
-                    }
-
-                    all_players = t1 + t2
-                    grp_flag = classify_game_group(
-                        all_players,
-                        roster_by_name,
-                        day_groups_snapshot,
-                    )
-
-                    if grp_flag == "A":
-                        games_A_sum.append(row)
-                    elif grp_flag == "B":
-                        games_B_sum.append(row)
-                    else:
-                        games_other_sum.append(row)
-
-                    if s1 is None or s2 is None:
-                        score_t1 = ""
-                        score_t2 = ""
-                    else:
-                        score_t1 = f"{s1} : {s2}"
-                        score_t2 = f"{s2} : {s1}"
-
-                    for p in t1:
-                        per_player_all[p].append(score_t1)
-                    for p in t2:
-                        per_player_all[p].append(score_t2)
-
-                    target_dict = per_player_other
-                    if grp_flag == "A":
-                        target_dict = per_player_A
-                    elif grp_flag == "B":
-                        target_dict = per_player_B
-
-                    for p in t1:
-                        target_dict[p].append(score_t1)
-                    for p in t2:
-                        target_dict[p].append(score_t2)
-
-                if summary_view_mode == "대진별 보기":
-
-
-                    # =========================================================
-                    # ✅ [대진표 캡처 + 텍스트 복사용] 준비 (24칸 들여쓰기)
-                    #   - 대진별 보기에서만 동작
-                    # =========================================================
-
-                    def _team_join(x):
-                        if isinstance(x, (list, tuple)):
-                            return ",".join([str(v).strip() for v in x if str(v).strip()])
-                        s = re.sub(r"<[^>]*>", "", str(x)).strip()
-                        s = re.sub(r"\s+", " ", s).strip()
-                        parts = [p.strip() for p in s.split(" ") if p.strip()]
-                        return ",".join(parts)
-
-                    def build_fixture_text_by_round(schedule_list):
-                        """
-                        schedule: [(gtype, t1, t2, court), ...]
-                        출력 포맷(예):
-                          1게임1코트 A,B vs C,D
-                          1게임2코트 E,F vs G,H
-                          쉬는사람: I,J
-
-                          2게임1코트 ...
-                          2게임2코트 ...
-                          쉬는사람: ...
-                        """
-                        def _team_join(x):
-                            # team을 텍스트로 안전하게 합치기 (리스트/튜플/문자열 모두 지원)
-                            if isinstance(x, (list, tuple)):
-                                return ",".join([str(v).strip() for v in x if str(v).strip()])
-                            s = re.sub(r"<[^>]*>", "", str(x)).strip()
-                            s = re.sub(r"\s+", " ", s).strip()
-                            parts = [p.strip() for p in s.split(" ") if p.strip()]
-                            return ",".join(parts)
-
-                        if not schedule_list:
-                            return ""
-
-                        # 코트 개수 추정(안전: 유니크 코트 수)
-                        courts = []
-                        for item in schedule_list:
-                            try:
-                                c = item[3]
-                                courts.append(int(c))
-                            except Exception:
-                                continue
-
-                        court_count = len(sorted(set(courts))) if courts else 1
-                        if court_count <= 0:
-                            court_count = 1
-
-                        def _team_list(x):
-                            """팀(선수) 이름을 리스트로 정규화"""
-                            if isinstance(x, (list, tuple)):
-                                return [str(v).strip() for v in x if str(v).strip()]
-                            s = re.sub(r"<[^>]*>", "", str(x)).strip()
-                            s = re.sub(r"\s+", " ", s).strip()
-                            return [p.strip() for p in s.split(" ") if p.strip()]
-
-                        # ✅ 전체 참가자(대진표 전체에서 등장한 순서대로)
-                        all_names = []
-                        seen = set()
-                        for _, t1, t2, _ in schedule_list:
-                            for nm in _team_list(t1) + _team_list(t2):
-                                if nm and nm not in seen:
-                                    seen.add(nm)
-                                    all_names.append(nm)
-
-                        lines = []
-                        total_rounds = (len(schedule_list) + court_count - 1) // court_count
-
-                        for round_no in range(1, total_rounds + 1):
-                            start = (round_no - 1) * court_count
-                            end = min(round_no * court_count, len(schedule_list))
-                            chunk = schedule_list[start:end]
-                            if not chunk:
-                                continue
-
-                            playing = set()
-
-                            for i, (gtype, t1, t2, court) in enumerate(chunk):
-                                try:
-                                    court_no = int(court)
-                                except Exception:
-                                    court_no = i + 1
-
-                                for nm in _team_list(t1) + _team_list(t2):
-                                    if nm:
-                                        playing.add(nm)
-
-                                lines.append(
-                                    f"{round_no}게임{court_no}코트 {_team_join(t1)} vs {_team_join(t2)}"
-                                )
-
-                            bench = [nm for nm in all_names if nm not in playing]
-                            lines.append("쉬는사람: " + (",".join(bench) if bench else "없음"))
-                            lines.append("")  # ✅ 한 칸 띄우고 다음 게임
-
-                        return "\n".join(lines).strip()
-
-                    fixture_text = build_fixture_text_by_round(schedule)
-
-                    safe_date_key = re.sub(r"[^0-9a-zA-Z_]+", "_", str(sel_date))
-                    capture_id = f"tab3_fixture_capture_{safe_date_key}"
-
-                    # ✅ 캡처 범위 마커 (start/end)
-                    st.markdown(f'<div id="{capture_id}__start"></div>', unsafe_allow_html=True)
-
-                    if view_mode_scores == "조별 보기 (A/B조)":
-                        if games_A_sum:
-                            st.markdown("### A조 경기 요약")
-                            render_score_summary_table(games_A_sum, roster_by_name)
-                        if games_B_sum:
-                            st.markdown("### B조 경기 요약")
-                            render_score_summary_table(games_B_sum, roster_by_name)
-                        if games_other_sum:
-                            st.markdown("### 조가 섞인 경기 / 기타")
-                            render_score_summary_table(games_other_sum, roster_by_name)
-                    else:
-                        all_games_sum = games_A_sum + games_B_sum + games_other_sum
-                        render_score_summary_table(all_games_sum, roster_by_name)
-
-                    st.markdown(f'<div id="{capture_id}__end"></div>', unsafe_allow_html=True)
-
-
-                    # =========================================================
-                    # ✅ [표 아래] JPEG 저장 + 텍스트 클립보드 복사 버튼
-                    #   - start/end 마커 사이 DOM을 복제해서 JPEG 캡처
-                    # =========================================================
-                    components.html(
-                        f"""
-                        <div style="display:flex; gap:12px; margin-top:14px; align-items:center;">
-                          <button id="{capture_id}__save"
-                            style="flex:1; padding:10px 12px; border-radius:10px; border:1px solid rgba(0,0,0,0.15);
-                                   background:white; cursor:pointer; font-weight:700;">
-                            대진표 이미지 저장 (JPEG)
-                          </button>
-
-                          <button id="{capture_id}__copy"
-                            style="flex:1; padding:10px 12px; border-radius:10px; border:1px solid rgba(0,0,0,0.15);
-                                   background:white; cursor:pointer; font-weight:700;">
-                            대진표 텍스트 저장 (클립보드)
-                          </button>
-
-                          <span id="{capture_id}__msg" style="font-size:12px; opacity:0.7;"></span>
-                        </div>
-
-                        <script>
-                        (function() {{
-                          const capId = {json.dumps(capture_id)};
-                          const fileName = "대진표_" + {json.dumps(str(sel_date))}.replace(/[^0-9a-zA-Z_\\-]+/g, "_") + ".jpg";
-                          const text = {json.dumps(fixture_text)};
-
-                          const msgEl  = document.getElementById(capId + "__msg");
-                          const btnSave = document.getElementById(capId + "__save");
-                          const btnCopy = document.getElementById(capId + "__copy");
-
-                          function setMsg(m) {{
-                            if (msgEl) msgEl.textContent = m;
-                          }}
-
-                          function ensureHtml2Canvas() {{
-                            return new Promise((resolve, reject) => {{
-                              const p = window.parent;
-                              if (p && p.html2canvas) {{
-                                resolve(p.html2canvas);
-                                return;
-                              }}
-                              const ps = p.document.createElement("script");
-                              ps.src = "https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js";
-                              ps.onload = () => resolve(p.html2canvas);
-                              ps.onerror = reject;
-                              p.document.head.appendChild(ps);
-                            }});
-                          }}
-
-                          async function copyTextFallback(t) {{
-                            const pdoc = window.parent.document;
-                            const ta = pdoc.createElement("textarea");
-                            ta.value = t;
-                            ta.style.position = "fixed";
-                            ta.style.left = "-9999px";
-                            pdoc.body.appendChild(ta);
-                            ta.focus();
-                            ta.select();
-                            try {{
-                              pdoc.execCommand("copy");
-                            }} catch(e) {{}}
-                            ta.remove();
-                          }}
-
-                          if (btnSave) {{
-                            btnSave.onclick = async function() {{
-                              try {{
-                                setMsg("이미지 생성중…");
-                                const pdoc = window.parent.document;
-
-                                const start = pdoc.getElementById(capId + "__start");
-                                const end   = pdoc.getElementById(capId + "__end");
-                                if (!start || !end) {{
-                                  setMsg("캡처 마커를 찾지 못했어.");
-                                  return;
-                                }}
-
-                                const startTop = start.closest('div[data-testid="stElementContainer"]')
-                                              || start.closest('div.element-container')
-                                              || start.parentElement;
-
-                                const endTop   = end.closest('div[data-testid="stElementContainer"]')
-                                              || end.closest('div.element-container')
-                                              || end.parentElement;
-
-                                let common = startTop ? startTop.parentElement : null;
-                                while (common && endTop && !common.contains(endTop)) {{
-                                  common = common.parentElement;
-                                }}
-                                if (!common) {{
-                                  setMsg("캡처 범위(공통부모) 찾기 실패");
-                                  return;
-                                }}
-
-                                const kids = Array.from(common.children);
-                                const si = kids.indexOf(startTop);
-                                const ei = kids.indexOf(endTop);
-
-                                if (si < 0 || ei < 0 || ei <= si) {{
-                                  setMsg("캡처 범위 인덱스 오류");
-                                  return;
-                                }}
-
-                                const wrapper = pdoc.createElement("div");
-                                wrapper.style.position = "fixed";
-                                wrapper.style.left = "-100000px";
-                                wrapper.style.top = "0";
-                                wrapper.style.background = "#ffffff";
-                                const PAD = 24;
-                                wrapper.style.boxSizing = "border-box";
-                                wrapper.style.width = ((common.clientWidth || 1200) + (PAD*2)) + "px";
-                                wrapper.style.padding = PAD + "px";
-                                wrapper.style.margin = "0";
-
-                                for (let i = si + 1; i < ei; i++) {{
-                                  wrapper.appendChild(kids[i].cloneNode(true));
-                                }}
-
-                                pdoc.body.appendChild(wrapper);
-
-                                const h2c = await ensureHtml2Canvas();
-                                const canvas = await h2c(wrapper, {{
-                                  backgroundColor: "#ffffff",
-                                  scale: 2,
-                                  useCORS: true
-                                }});
-
-                                wrapper.remove();
-
-                                const url = canvas.toDataURL("image/jpeg", 0.95);
-                                const a = pdoc.createElement("a");
-                                a.href = url;
-                                a.download = fileName;
-                                pdoc.body.appendChild(a);
-                                a.click();
-                                a.remove();
-
-                                setMsg("JPEG 저장 완료!");
-                              }} catch (e) {{
-                                console.log(e);
-                                setMsg("저장 실패(콘솔 확인)");
-                              }}
-                            }};
-                          }}
-
-                          if (btnCopy) {{
-                            btnCopy.onclick = async function() {{
-                              try {{
-                                await window.parent.navigator.clipboard.writeText(text);
-                                setMsg("클립보드 복사 완료!");
-                              }} catch(e) {{
-                                await copyTextFallback(text);
-                                setMsg("클립보드 복사 완료!");
-                              }}
-                            }};
-                          }}
-                        }})();
-                        </script>
-                        """,
-                        height=90,
-                    )
-
-
-                else:
-                    # =========================================================
-                    # ✅ [개인별 보기] 캡처 마커 + 이미지 저장 버튼(only)
-                    # =========================================================
-
-                    safe_date_key_p = re.sub(r"[^0-9a-zA-Z_]+", "_", str(sel_date))
-                    capture_id_p = f"tab3_personal_capture_{safe_date_key_p}"
-
-                    # ✅ 캡처 범위 시작 마커
-                    st.markdown(f'<div id="{capture_id_p}__start"></div>', unsafe_allow_html=True)
-
-                    def render_player_score_table(title, per_dict):
-                        if not per_dict:
-                            return
-                        st.markdown(f"### {title}")
-
-                        players_sorted = sorted(per_dict.keys())
-                        rows = []
-                        for no, name in enumerate(players_sorted, start=1):
-                            games_list = per_dict[name]
-                            row = {
-                                "번호": no,
-                                "이름": name,
-                                "1게임": games_list[0] if len(games_list) >= 1 else "",
-                                "2게임": games_list[1] if len(games_list) >= 2 else "",
-                                "3게임": games_list[2] if len(games_list) >= 3 else "",
-                                "4게임": games_list[3] if len(games_list) >= 4 else "",
-                            }
-                            rows.append(row)
-
-                        df_players = pd.DataFrame(rows)
-                        df_players = df_players.set_index("번호")
-                        df_players.index.name = ""
-
-                        df_players.index.name = None
-                        df_players.columns.name = None
-
-                        def calc_wdl(values):
-                            w = d = l = 0
-                            for v in values:
-                                if not isinstance(v, str):
-                                    continue
-                                s = v.replace(" ", "")
-                                if ":" not in s:
-                                    continue
-                                left, right = s.split(":", 1)
-                                try:
-                                    a = int(left)
-                                    b = int(right)
-                                except ValueError:
-                                    continue
-
-                                if a > b:
-                                    w += 1
-                                elif a == b:
-                                    d += 1
-                                else:
-                                    l += 1
-                            return pd.Series([w, d, l], index=["승", "무", "패"])
-
-                        game_cols = ["1게임", "2게임", "3게임", "4게임"]
-                        df_players[["승", "무", "패"]] = df_players[game_cols].apply(calc_wdl, axis=1)
-
-                        df_players = df_players[["이름", "승", "무", "패"] + game_cols]
-
-                        def highlight_win_loss(val):
-                            if not isinstance(val, str):
-                                return ""
-                            s = val.replace(" ", "")
-                            if ":" not in s:
-                                return ""
-                            left, right = s.split(":", 1)
-                            try:
-                                a = int(left)
-                                b = int(right)
-                            except ValueError:
-                                return ""
-
-                            if a > b:
-                                return "background-color: #fef9c3;"  # 노랑
-                            elif a < b:
-                                return "background-color: #e5e7eb;"  # 회색
-                            else:
-                                return ""
-
-                        sty_players = colorize_df_names(df_players, roster_by_name, ["이름"])
-                        sty_players = sty_players.applymap(highlight_win_loss, subset=game_cols)
-                        smart_table(sty_players)
-
-                    # =========================================================
-                    # ✅ 개인별 테이블 출력(기존 로직)
-                    # =========================================================
-                    if view_mode_scores == "조별 보기 (A/B조)":
-                        has_any = False
-                        if per_player_A:
-                            render_player_score_table("A조 개인별 스코어", per_player_A)
-                            has_any = True
-                        if per_player_B:
-                            render_player_score_table("B조 개인별 스코어", per_player_B)
-                            has_any = True
-                        if per_player_other:
-                            render_player_score_table("조가 섞인 경기 / 기타 개인별 스코어", per_player_other)
-                            has_any = True
-                        if not has_any:
-                            st.info("개인별로 표시할 스코어가 없습니다.")
-                    else:
-                        if not per_player_all:
-                            st.info("개인별로 표시할 스코어가 없습니다.")
-                        else:
-                            render_player_score_table("전체 개인별 스코어", per_player_all)
-
-                    # ✅ 캡처 범위 끝 마커
-                    st.markdown(f'<div id="{capture_id_p}__end"></div>', unsafe_allow_html=True)
-
-                    # =========================================================
-                    
-                                        # =========================================================
-                    # =========================================================
-                    # ✅ [개인별 보기] 이미지 저장 (JPEG) - ✅ 전체 행 포함 (브라우저 캡처)
-                    #   - st.dataframe은 가상 렌더(스크롤)이라 캡처가 비거나 누락될 수 있습니다.
-                    #   - 동일 데이터를 '정적 HTML 테이블(전체 행)'로 숨김 렌더한 뒤 html2canvas로 캡처합니다.
-                    #   - matplotlib 불필요
-                    # =========================================================
-
-                    def _build_personal_score_df(per_dict: dict) -> pd.DataFrame:
-                        players_sorted = sorted(per_dict.keys())
-                        rows = []
-                        for no, name in enumerate(players_sorted, start=1):
-                            games_list = per_dict[name]
-                            rows.append({
-                                '번호': no,
-                                '이름': name,
-                                '1게임': games_list[0] if len(games_list) >= 1 else '',
-                                '2게임': games_list[1] if len(games_list) >= 2 else '',
-                                '3게임': games_list[2] if len(games_list) >= 3 else '',
-                                '4게임': games_list[3] if len(games_list) >= 4 else '',
-                            })
-                        df = pd.DataFrame(rows).set_index('번호')
-                        df.index.name = ''
-                        df.index.name = None
-                        df.columns.name = None
-                        game_cols = ['1게임', '2게임', '3게임', '4게임']
-                        def _calc_wdl(row):
-                            w = d = l = 0
-                            for v in row:
-                                if not isinstance(v, str):
-                                    continue
-                                s = v.replace(' ', '')
-                                if ':' not in s:
-                                    continue
-                                a, b = s.split(':', 1)
-                                try:
-                                    a = int(a); b = int(b)
-                                except Exception:
-                                    continue
-                                if a > b: w += 1
-                                elif a == b: d += 1
-                                else: l += 1
-                            return pd.Series([w, d, l], index=['승','무','패'])
-                        df[['승','무','패']] = df[game_cols].apply(_calc_wdl, axis=1)
-                        df = df[['이름','승','무','패'] + game_cols]
-                        return df
-
-                    def _personal_df_to_html(df: pd.DataFrame, title: str) -> str:
-                        cols = list(df.columns)
-                        html = []
-                        html.append("<div style='font-size:28px;font-weight:900;margin:0 0 14px 0;'>" + str(title) + "</div>")
-                        html.append("<table style='border-collapse:collapse; width:100%; font-size:16px;'>")
-                        html.append("<thead><tr>")
-                        html.append("<th style='border:1px solid #e5e7eb; background:#f9fafb; padding:10px 12px; text-align:center;'></th>")
-                        for c in cols:
-                            html.append("<th style='border:1px solid #e5e7eb; background:#f9fafb; padding:10px 12px; text-align:center; font-weight:800; color:#374151;'>" + str(c) + "</th>")
-                        html.append("</tr></thead>")
-                        html.append("<tbody>")
-                        for idx, row in df.iterrows():
-                            html.append("<tr>")
-                            html.append("<td style='border:1px solid #e5e7eb; padding:10px 12px; text-align:center; color:#6b7280;'>" + str(idx) + "</td>")
-                            for c in cols:
-                                v = row[c]
-                                style = "border:1px solid #e5e7eb; padding:10px 12px; text-align:center;"
-                                if c == '이름':
-                                    nm = str(v)
-                                    info = roster_by_name.get(nm, {}) or {}
-                                    g = info.get('gender')
-                                    bg = '#f3f4f6'
-                                    if g == '남': bg = '#dbeafe'
-                                    elif g == '여': bg = '#fee2e2'
-                                    style += ' background:' + bg + '; font-weight:800;'
-                                if re.match(r'^[1-9]\\d*게임$', str(c)):
-                                    s = str(v).replace(' ', '')
-                                    if ':' in s:
-                                        try:
-                                            a, b = s.split(':', 1)
-                                            a = int(a); b = int(b)
-                                            if a > b: style += ' background:#fef9c3;'
-                                            elif a < b: style += ' background:#e5e7eb;'
-                                        except Exception:
-                                            pass
-                                html.append("<td style='" + style + "'>" + str(v) + "</td>")
-                            html.append("</tr>")
-                        html.append("</tbody></table>")
-                        return ''.join(html)
-
-                    capture_personal_tables = []
-                    if view_mode_scores == '조별 보기 (A/B조)':
-                        if per_player_A: capture_personal_tables.append(('A조 개인별 스코어', _build_personal_score_df(per_player_A)))
-                        if per_player_B: capture_personal_tables.append(('B조 개인별 스코어', _build_personal_score_df(per_player_B)))
-                        if per_player_other: capture_personal_tables.append(('조가 섞인 경기 / 기타 개인별 스코어', _build_personal_score_df(per_player_other)))
-                    else:
-                        if per_player_all: capture_personal_tables.append(('전체 개인별 스코어', _build_personal_score_df(per_player_all)))
-
-                    capture_img_id = f"{capture_id_p}__img"
-                    safe_name = '개인별표_' + str(sel_date).replace('/', '_').replace(' ', '_') + '.jpg'
-                    if capture_personal_tables:
-                        _tables_html = ''.join([_personal_df_to_html(df, title) + "<div style='height:26px;'></div>" for (title, df) in capture_personal_tables])
-                        st.markdown("<div id='" + capture_img_id + "__body' style='position:fixed; left:-99999px; top:0; background:#ffffff; padding:24px; width:1200px;'>" + _tables_html + "</div>", unsafe_allow_html=True)
-
-                    _cap_html = """
-                    <div style=\"display:flex; gap:12px; margin-top:14px; align-items:center;\">
-                      <button id=\"__CAPID____save\" style=\"flex:1; padding:14px 12px; border-radius:14px; border:1px solid rgba(0,0,0,0.12); background:#5ad1b3; color:white; cursor:pointer; font-weight:900;\">개인별 표 이미지 저장 (JPEG)</button>
-                      <span id=\"__CAPID____msg\" style=\"font-size:13px; opacity:0.75;\"></span>
-                    </div>
-                    <script>
-                    (function(){
-                      const capId = "__CAPID__";
-                      const fileName = "__FILENAME__";
-                      const btn = document.getElementById(capId + "__save");
-                      const msg = document.getElementById(capId + "__msg");
-                      const setMsg = (m) => { if(msg) msg.textContent = m; };
-                      function ensureHtml2Canvas(){
-                        return new Promise((resolve,reject)=>{
-                          const p = window.parent;
-                          if(p && p.html2canvas) return resolve(p.html2canvas);
-                          const ps = p.document.createElement('script');
-                          ps.src = 'https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js';
-                          ps.onload = ()=> resolve(p.html2canvas);
-                          ps.onerror = reject;
-                          p.document.head.appendChild(ps);
-                        });
-                      }
-                      async function run(){
-                        try{
-                          setMsg('이미지 생성중…');
-                          const pdoc = window.parent.document;
-                          const body = pdoc.getElementById(capId + "__body");
-                          if(!body){ setMsg('표가 없습니다.'); return; }
-                          const h2c = await ensureHtml2Canvas();
-                          const canvas = await h2c(body, {backgroundColor:'#ffffff', scale:2});
-                          const url = canvas.toDataURL('image/jpeg', 0.95);
-                          const a = pdoc.createElement('a');
-                          a.href = url; a.download = fileName || 'table.jpg';
-                          pdoc.body.appendChild(a); a.click(); a.remove();
-                          setMsg('JPEG 저장 완료!');
-                        }catch(e){ console.error(e); setMsg('실패'); }
-                      }
-                      if(btn) btn.onclick = run;
-                    })();
-                    </script>
-                    """
-                    _cap_html = _cap_html.replace("__CAPID__", capture_img_id).replace("__FILENAME__", safe_name)
-                    components.html(_cap_html, height=90)
-        # 2. 날짜별 요약 리포트 (선택 날짜 기준)
-        #   - ✅ 스코어보드/옵저버(읽기 전용) 화면에서만 여기(요약표 아래) 표시
-        #   - ✅ 관리자 모드에서는 아래 '전체 경기 스코어' 섹션 하단에서 1번만 표시
-        # =========================================================
-        if IS_OBSERVER:
-            try:
-                report_lines = build_daily_report(sel_date, day_data)
-                if report_lines:
-                    html_lines = ''.join([f'<li>{line}</li>' for line in report_lines])
-                    st.markdown(
-                        f"""
-                        <div style="
-                            margin:0.8rem 0 0.9rem 0;
-                            padding:0.9rem 1.0rem;
-                            border-radius:12px;
-                            background:#eef2ff;
-                            border:1px solid #c7d2fe;
-                            font-size:0.9rem;
-                            line-height:1.5;
-                        ">
-                            <div style="
-                                display:flex;
-                                align-items:center;
-                                gap:0.55rem;
-                                font-weight:800;
-                                font-size:1.05rem;
-                                color:#111827;
-                                margin-bottom:0.5rem;
-                            ">
-                                <span style="
-                                    display:inline-flex;
-                                    width:30px;height:30px;
-                                    align-items:center;justify-content:center;
-                                    border-radius:10px;
-                                    background:#e0e7ff;
-                                    border:1px solid #c7d2fe;
-                                ">📋</span>
-                                <span>{sel_date} 요약 리포트</span>
-                            </div>
-                            <ul style="margin:0 0 0 1.1rem;padding:0;">
-                                {html_lines}
-                            </ul>
-                        </div>
-                        """,
-                        unsafe_allow_html=True,
-                    )
-            except Exception as e:
-                st.error(f"요약 리포트 생성 중 오류: {e}")
-
-# -----------------------------
-        # ✅ PC에서만 스코어 입력 줄바꿈 방지 CSS
-        # -----------------------------
-        if not mobile_mode:
-            st.markdown("""
-            <style>
-            /* ✅ PC 라디오: 너무 빡센 'nowrap' 제거하고 간격 줄이기 */
-            .stRadio [role="radiogroup"]{
-                display: flex !important;
-                flex-direction: row !important;
-                flex-wrap: wrap !important;          /* ✅ 핵심: 겹침 방지 */
-                gap: 0.25rem 0.6rem !important;      /* ✅ 옵션 간 간격 축소 */
-                align-items: center !important;
-            }
-
-            /* ✅ 라디오 동그라미와 텍스트 사이 간격 줄이기 */
-            .stRadio label{
-                gap: 0.25rem !important;
-                padding-right: 0.1rem !important;
-            }
-
-            .stRadio label span{
-                white-space: nowrap !important;
-                font-size: 0.92rem !important;      /* ✅ 살짝만 줄여서 안정화 */
-            }
-
-            /* 너가 이미 쓰는 이름 배지 class */
-            .name-badge{
-                white-space: nowrap !important;
-                display: inline-block !important;
-            }
-
-            .score-row *{
-                white-space: nowrap !important;
-            }
-            </style>
-            """, unsafe_allow_html=True)
+                                inject_style_once("SEED_CARD")
 
 
         if not IS_OBSERVER:
