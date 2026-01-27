@@ -6938,6 +6938,10 @@ def render_tab_today_session(tab):
                             disabled = True
 
                         key = f"aa_seed_pick_{i}"
+                        # ✅ Streamlit 제약: 위젯 생성(Selectbox) 이후 session_state[key]를 다시 쓰면 예외가 날 수 있어요.
+                        # 그래서 disabled 상태라면 *위젯 생성 전에* 값을 '(선택)'으로 정리해 둡니다.
+                        if disabled and st.session_state.get(key, "(선택)") != "(선택)":
+                            st.session_state[key] = "(선택)"
                         prev = st.session_state.get(key, "(선택)")
 
                         opts = ["(선택)"] + [
@@ -6958,9 +6962,8 @@ def render_tab_today_session(tab):
                                 disabled=disabled,
                             )
 
-                        # disabled일 때는 강제로 비움 유지
+                        # disabled일 때는 선택 불가(항상 '(선택)'로 처리)
                         if disabled:
-                            st.session_state[key] = "(선택)"
                             val = "(선택)"
 
                         if val != "(선택)":
