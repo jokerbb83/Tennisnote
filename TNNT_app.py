@@ -187,26 +187,48 @@ def get_default_doubles_mode_label(club_code: str) -> str:
     return str(v).strip() if v else ""
 
 
-def _get_user_email_from_streamlit() -> str | None:
-    """가능하면 Streamlit 인증 정보에서 이메일을 가져온다."""
-    # Streamlit 버전/배포환경에 따라 제공 키가 조금 다를 수 있어서 방어적으로 처리
+def _streamlit_auth_configured() -> bool:
+    """Streamlit 내장 OIDC 로그인(st.login / st.user) 설정 여부를 최대한 안전하게 판별."""
     try:
-        u = getattr(st, "experimental_user", None)
-        if u:
-            uinfo = u if isinstance(u, dict) else dict(u)
+        # st.user는 있어도(auth 미설정이면) is_logged_in이 없을 수 있음
+        if not hasattr(st, "login"):
+            return False
+        if not hasattr(st, "user"):
+            return False
+        return hasattr(st.user, "is_logged_in")
+    except Exception:
+        return False
+
+
+def _get_user_email_from_streamlit() -> str | None:
+    """가능하면 Streamlit 인증 정보에서 이메일을 가져온다.
+
+    우선순위:
+      1) Streamlit 내장 OIDC 로그인: st.user (Streamlit >= 1.42 권장)
+      2) 레거시/호환: st.experimental_user (Community Cloud에서만 잡히던 케이스)
+    """
+    # 1) 최신: st.user (OIDC 설정 + 로그인 성공 시)
+    try:
+        if hasattr(st, "user") and hasattr(st.user, "is_logged_in") and bool(getattr(st.user, "is_logged_in")):
+            try:
+                uinfo = st.user.to_dict()  # type: ignore[attr-defined]
+            except Exception:
+                uinfo = st.user if isinstance(st.user, dict) else dict(st.user)
             email = (
-                uinfo.get("email")
-                or uinfo.get("email_address")
-                or uinfo.get("user_email")
-                or uinfo.get("login")
+                (uinfo.get("email") if isinstance(uinfo, dict) else None)
+                or (uinfo.get("email_address") if isinstance(uinfo, dict) else None)
+                or (uinfo.get("preferred_username") if isinstance(uinfo, dict) else None)
+                or (uinfo.get("user_email") if isinstance(uinfo, dict) else None)
+                or (uinfo.get("login") if isinstance(uinfo, dict) else None)
             )
             if email:
                 return str(email).strip()
     except Exception:
         pass
 
+    # 2) 레거시: st.experimental_user
     try:
-        u = getattr(st, "user", None)
+        u = getattr(st, "experimental_user", None)
         if u:
             uinfo = u if isinstance(u, dict) else dict(u)
             email = (
@@ -365,19 +387,92 @@ def ensure_login_and_club():
     # 5) Sidebar: 로그인/현재 클럽 표시(클럽 변경은 '설정' 탭에서)
     with st.sidebar:
         st.markdown("### 🔐 로그인")
+
+        # ✅ Streamlit 내장 OIDC 로그인(st.login) 사용 가능하면 우선 제공
+        auth_cfg = _streamlit_auth_configured()
         email = (st.session_state.get("user_email") or "").strip()
-        if email:
-            st.caption(f"로그인: **{email}**")
-        else:
-            st.info("구글 로그인이 연결되지 않은 환경입니다. (로컬/인증 미설정)\n임시로 이메일을 입력해 주세요.")
-            email_in = st.text_input("이메일(임시 로그인)", value="", placeholder="you@gmail.com", key="tmp_login_email")
-            if st.button("로그인", use_container_width=True):
-                email_in = (email_in or "").strip()
-                if not email_in:
-                    st.warning("이메일을 입력해 주세요.")
+
+        if auth_cfg:
+            # 로그인 전이면 로그인 버튼을 먼저 보여줌
+            try:
+                logged_in = bool(getattr(st.user, "is_logged_in"))
+            except Exception:
+                logged_in = False
+
+            if not logged_in:
+                st.info("이 앱의 **구글 로그인**은 Streamlit의 내장 OIDC 로그인 기능(st.login)을 사용합니다.\n지금은 아직 로그인 상태가 아니라서 이메일이 잡히지 않아요.")
+
+                # ✅ 구글 로그인 버튼
+                if st.button("Google로 로그인", use_container_width=True):
+                    try:
+                        st.login()
+                    except Exception as e:
+                        st.error(f"로그인 호출 실패: {e}")
                     st.stop()
-                st.session_state["user_email"] = email_in
-                st.rerun()
+
+                # (선택) 로그인 없이도 통계만 볼 수 있게 유지: 임시 이메일 입력
+                st.markdown("— 또는 —")
+                email_in = st.text_input(
+                    "이메일(임시 로그인 · 로컬/인증 미설정용)",
+                    value="",
+                    placeholder="you@gmail.com",
+                    key="tmp_login_email",
+                )
+                if st.button("임시 로그인", use_container_width=True):
+                    email_in = (email_in or "").strip()
+                    if not email_in:
+                        st.warning("이메일을 입력해 주세요.")
+                        st.stop()
+                    st.session_state["user_email"] = email_in
+                    st.rerun()
+
+                with st.expander("로그인 진단(왜 안 잡히는지 확인)", expanded=False):
+                    st.write(
+                        {
+                            "has_st_login": hasattr(st, "login"),
+                            "has_st_logout": hasattr(st, "logout"),
+                            "has_st_user": hasattr(st, "user"),
+                            "user_has_is_logged_in": hasattr(getattr(st, "user", None), "is_logged_in"),
+                            "st_user_raw": (
+                                getattr(st, "user", None).to_dict()
+                                if hasattr(getattr(st, "user", None), "to_dict")
+                                else str(getattr(st, "user", None))
+                            ),
+                        }
+                    )
+                    st.caption(
+                        "✅ 해결 방법: `.streamlit/secrets.toml`에 `[auth]` 설정(redirect_uri/cookie_secret/client_id/client_secret/server_metadata_url)을 넣어야 "
+                        "구글 로그인 버튼이 실제로 동작해요."
+                    )
+
+            else:
+                # 로그인된 경우: st.user에서 이메일을 동기화
+                auto_email = _get_user_email_from_streamlit()
+                if auto_email and not email:
+                    st.session_state["user_email"] = auto_email
+                    email = auto_email
+                st.caption(f"로그인: **{email or '확인 불가'}**")
+                if hasattr(st, "logout") and st.button("로그아웃", use_container_width=True):
+                    try:
+                        st.logout()
+                    except Exception:
+                        pass
+                    st.session_state.pop("user_email", None)
+                    st.rerun()
+        else:
+            # ✅ auth 미설정 환경(로컬/미배포/구형): 임시 이메일 입력 폴백
+            if email:
+                st.caption(f"로그인: **{email}**")
+            else:
+                st.info("구글 로그인이 설정되지 않은 환경입니다. (로컬/인증 미설정)\n임시로 이메일을 입력해 주세요.")
+                email_in = st.text_input("이메일(임시 로그인)", value="", placeholder="you@gmail.com", key="tmp_login_email")
+                if st.button("로그인", use_container_width=True):
+                    email_in = (email_in or "").strip()
+                    if not email_in:
+                        st.warning("이메일을 입력해 주세요.")
+                        st.stop()
+                    st.session_state["user_email"] = email_in
+                    st.rerun()
 
         st.markdown("---")
         if active_code:
