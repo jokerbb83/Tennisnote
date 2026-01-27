@@ -6748,14 +6748,26 @@ def render_tab_today_session(tab):
             _apply_manual_pending()
 
             st.markdown("**성별 옵션**")
-            manual_gender_mode = st.radio(
-                "성별 옵션",
-                ["성별랜덤", "동성", "혼합"],
-                horizontal=True,
-                key="manual_gender_mode",
-                label_visibility="collapsed",
-            )
-            # ✅ 동성 세부 옵션(동성/남성/여성) — '동성'일 때만 표시
+            # ✅ 성별 옵션 + 코트별 커스텀(게임별) 모드
+            _gcol1, _gcol2 = st.columns([4, 1.4], vertical_alignment="center")
+            with _gcol1:
+                manual_gender_mode = st.radio(
+                    "성별 옵션",
+                    ["성별랜덤", "동성", "혼합"],
+                    horizontal=True,
+                    key="manual_gender_mode",
+                    label_visibility="collapsed",
+                )
+            with _gcol2:
+                # ✅ "혼합" 옆 커스텀 버튼(토글)
+                court_custom_on = st.toggle(
+                    "코트별 설정",
+                    value=bool(st.session_state.get("court_custom_on", False)),
+                    key="court_custom_on",
+                    help="게임(코트)별로 대진 방식을 따로 지정합니다.",
+                )
+
+# ✅ 동성 세부 옵션(동성/남성/여성) — '동성'일 때만 표시
             manual_samegender_submode = "동성복식"
             if manual_gender_mode == "동성":
                 manual_samegender_submode = st.radio(
@@ -6834,34 +6846,359 @@ def render_tab_today_session(tab):
             #   - ✅ 사용자가 직접 고른 값은 유지
             #   - ✅ 이전에 자동으로 들어간 값은 이번 클릭에서 다시 랜덤으로 갈아끼움
             # -------------------------
-            if fill_all_clicked and players_selected:
-                gm = _manual_gender_to_mode(manual_gender_mode)
+            
+            # =========================================================
+            # ✅ 코트별(게임별) 자동 채우기: 공평한 게임수(최대 1게임 차) + 타입별 제약
+            # =========================================================
+            def _manual_game_no(rr: int, cc: int, court_count: int) -> int:
+                return (int(rr) - 1) * int(court_count) + int(cc)
 
+            def _desired_mode_for_game(rr: int, cc: int, court_count: int):
+                # 커스텀 ON: 게임별 라디오
+                if bool(st.session_state.get("court_custom_on", False)):
+                    gno = _manual_game_no(rr, cc, court_count)
+                    return st.session_state.get(f"court_mode_game_{gno}", "랜덤") or "랜덤"
+
+                # 커스텀 OFF: 전역 성별 옵션
+                if manual_gender_mode == "혼합":
+                    return "혼합복식"
+                if manual_gender_mode == "동성":
+                    return (manual_samegender_submode or "동성복식")
+                return "랜덤"
+
+            def _is_auto_slot(k: str) -> bool:
+                return bool(st.session_state.get(f"_auto_{k}", False))
+
+            def _fair_pick(cands, counts: Counter, rng: random.Random, ref_ntrp=None, ntrp_on=False):
+                cands = [c for c in cands if c is not None]
+                if not cands:
+                    return None
+
+                # 현재 전체 최소 게임수 기준(최대 1게임 차 유지)
+                try:
+                    cur_min = min(counts.values()) if counts else 0
+                except Exception:
+                    cur_min = 0
+
+                eligible = [p for p in cands if counts.get(p, 0) <= cur_min + 1]
+                if not eligible:
+                    return None
+
+                # 가장 적게 뛴 사람 우선
+                min_c = min(counts.get(p, 0) for p in eligible)
+                best = [p for p in eligible if counts.get(p, 0) == min_c]
+
+                if not best:
+                    return None
+
+                if ntrp_on and (ref_ntrp is not None):
+                    try:
+                        pick = _pick_by_ntrp_closest(best, ref_ntrp, rng=rng)
+                        return pick or rng.choice(best)
+                    except Exception:
+                        return rng.choice(best)
+
+                return rng.choice(best)
+
+            def _fill_manual_fair(target_by_round: dict | None, seed_base: int):
+                """수동 배정 자동 채우기(공평성 + 코트별 타입).
+
+                target_by_round:
+                  - None: 전체 라운드/전체 코트 대상
+                  - {round: [court, ...], ...}: 해당 코트만 변경(같은 라운드 내 중복 방지 유지)
+                """
+                MAX_RETRY = 200
+
+                # ✅ (1) 고정(유지)되는 값들을 먼저 수집해서 base_counts / used_by_round를 만든다.
+                base_counts = Counter({p: 0 for p in players_selected})
+                used_by_round_base = {int(rr): set() for rr in range(1, int(total_rounds) + 1)}
+
+                def _is_target(rr: int, cc: int) -> bool:
+                    if target_by_round is None:
+                        return True
+                    return (int(rr) in target_by_round) and (int(cc) in set(target_by_round[int(rr)]))
+
+                for rr in range(1, int(total_rounds) + 1):
+                    for cc in range(1, int(court_count) + 1):
+                        is_target = _is_target(rr, cc)
+
+                        if gtype == "단식":
+                            ks = [_manual_key(rr, cc, 1, gtype), _manual_key(rr, cc, 2, gtype)]
+                        else:
+                            ks = [_manual_key(rr, cc, i, gtype) for i in (1, 2, 3, 4)]
+
+                        for k in ks:
+                            v = _get_manual_value(k)
+                            if v == "선택":
+                                continue
+
+                            # 대상 코트가 아니면 항상 유지
+                            if not is_target:
+                                used_by_round_base[int(rr)].add(v)
+                                base_counts[v] += 1
+                                continue
+
+                            # 대상 코트면: 수동 고정(_auto False)만 유지
+                            if not _is_auto_slot(k):
+                                used_by_round_base[int(rr)].add(v)
+                                base_counts[v] += 1
+
+                # ✅ (2) 여러 번 시도해서 공평성 + 제약을 만족하는 해를 찾는다.
+                for attempt in range(MAX_RETRY):
+                    rng = random.Random(int(seed_base) + attempt * 9973)
+                    counts = Counter(base_counts)
+                    used_by_round = {rr: set(vs) for rr, vs in used_by_round_base.items()}
+                    plan = {}
+                    auto_keys = set()
+
+                    ok = True
+
+                    for rr in range(1, int(total_rounds) + 1):
+                        used = used_by_round[int(rr)]
+
+                        # 라운드 내: 코트별로 채우되, 타입은 게임별 선택을 따름
+                        for cc in range(1, int(court_count) + 1):
+                            if not _is_target(rr, cc):
+                                continue
+
+                            grp_tag = _court_group_tag(view_mode_for_schedule, cc)
+                            pool = _pool_by_group(players_selected, grp_tag)
+
+                            mode = _desired_mode_for_game(rr, cc, court_count)
+
+                            if gtype == "단식":
+                                k1 = _manual_key(rr, cc, 1, gtype)
+                                k2 = _manual_key(rr, cc, 2, gtype)
+                                v1 = _get_manual_value(k1)
+                                v2 = _get_manual_value(k2)
+
+                                keep1 = (v1 != "선택" and (not _is_auto_slot(k1)))
+                                keep2 = (v2 != "선택" and (not _is_auto_slot(k2)))
+
+                                v1_eff = v1 if keep1 else "선택"
+                                v2_eff = v2 if keep2 else "선택"
+
+                                # 이미 keep된 값은 base에서 counts/used에 반영돼 있음
+                                empty = []
+                                if v1_eff == "선택":
+                                    empty.append(k1)
+                                if v2_eff == "선택":
+                                    empty.append(k2)
+
+                                if not empty:
+                                    continue
+
+                                avail = [p for p in pool if p not in used]
+
+                                # 단식에서 '남/여' 강제 모드 처리
+                                if mode in ("남성복식", "여성복식"):
+                                    need_g = "남" if mode == "남성복식" else "여"
+                                    avail = [p for p in avail if _gender_of(p) == need_g]
+                                elif mode == "동성복식":
+                                    # 가능한 한 같은 성별(이미 한 명이 있으면 그 성별 우선)
+                                    fixed = v1_eff if v1_eff != "선택" else v2_eff if v2_eff != "선택" else None
+                                    if fixed:
+                                        g_fixed = _gender_of(fixed)
+                                        cand = [p for p in avail if _gender_of(p) == g_fixed]
+                                        if cand:
+                                            avail = cand
+
+                                # 채우기
+                                if len(empty) == 2:
+                                    a = _fair_pick(avail, counts, rng, ntrp_on=bool(manual_fill_ntrp))
+                                    if a is None:
+                                        ok = False; break
+                                    used.add(a); counts[a] += 1
+                                    plan[empty[0]] = a; auto_keys.add(empty[0])
+                                    avail2 = [p for p in avail if p != a and p not in used]
+                                    b = _fair_pick(avail2, counts, rng, ref_ntrp=_ntrp_of(a), ntrp_on=bool(manual_fill_ntrp))
+                                    if b is None:
+                                        ok = False; break
+                                    used.add(b); counts[b] += 1
+                                    plan[empty[1]] = b; auto_keys.add(empty[1])
+                                else:
+                                    # 하나만 비었을 때
+                                    fixed = v1_eff if empty[0] == k2 else v2_eff
+                                    ref = _ntrp_of(fixed) if fixed != "선택" else None
+                                    a = _fair_pick(avail, counts, rng, ref_ntrp=ref, ntrp_on=bool(manual_fill_ntrp))
+                                    if a is None:
+                                        ok = False; break
+                                    used.add(a); counts[a] += 1
+                                    plan[empty[0]] = a; auto_keys.add(empty[0])
+
+                                continue
+
+                            # ---------------- 복식 ----------------
+                            ks = [_manual_key(rr, cc, i, gtype) for i in (1, 2, 3, 4)]
+                            vs = [_get_manual_value(k) for k in ks]
+
+                            keep_mask = [(v != "선택" and (not _is_auto_slot(k))) for k, v in zip(ks, vs)]
+                            eff_vs = [v if keep else "선택" for v, keep in zip(vs, keep_mask)]
+                            empty_keys = [k for k, v in zip(ks, eff_vs) if v == "선택"]
+
+                            if not empty_keys:
+                                continue
+
+                            avail = [p for p in pool if p not in used]
+                            men = [p for p in avail if _gender_of(p) == "남"]
+                            women = [p for p in avail if _gender_of(p) == "여"]
+
+                            # ✅ 모드별로 빈칸 채우기
+                            pos_map = {kk: i for i, kk in enumerate(ks)}
+                            eff_tmp = list(eff_vs)
+
+                            def _take(p):
+                                if p is None:
+                                    return False
+                                if p in used:
+                                    return False
+                                used.add(p)
+                                counts[p] += 1
+                                return True
+
+                            if mode == "혼합복식":
+                                # 팀(0,1) / (2,3)이 무조건 남+여 / 남+여가 되도록
+                                for kk in empty_keys:
+                                    i = pos_map.get(kk, None)
+                                    if i is None:
+                                        ok = False; break
+
+                                    mate_i = (i - 1) if (i % 2 == 1) else (i + 1)
+                                    mate = eff_tmp[mate_i] if 0 <= mate_i < 4 else "선택"
+
+                                    if mate != "선택":
+                                        need_g = "여" if _gender_of(mate) == "남" else "남"
+                                        cand = men if need_g == "남" else women
+                                        pick = _fair_pick(cand, counts, rng, ref_ntrp=_ntrp_of(mate), ntrp_on=bool(manual_fill_ntrp))
+                                        if pick is None:
+                                            pick = _fair_pick(men + women, counts, rng, ref_ntrp=_ntrp_of(mate), ntrp_on=bool(manual_fill_ntrp))
+                                    else:
+                                        prefer_g = "남" if i in (0, 2) else "여"
+                                        primary = men if prefer_g == "남" else women
+                                        secondary = women if prefer_g == "남" else men
+                                        pick = _fair_pick(primary, counts, rng, ntrp_on=bool(manual_fill_ntrp))                                             or _fair_pick(secondary, counts, rng, ntrp_on=bool(manual_fill_ntrp))                                             or _fair_pick(men + women, counts, rng, ntrp_on=bool(manual_fill_ntrp))
+
+                                    if pick is None:
+                                        ok = False; break
+
+                                    if not _take(pick):
+                                        ok = False; break
+
+                                    plan[kk] = pick
+                                    auto_keys.add(kk)
+                                    eff_tmp[i] = pick
+
+                                    if pick in men:
+                                        men.remove(pick)
+                                    if pick in women:
+                                        women.remove(pick)
+
+                                if not ok:
+                                    break
+
+                            else:
+                                # 동성/남성/여성/랜덤
+                                if mode == "남성복식":
+                                    desired = "남"
+                                elif mode == "여성복식":
+                                    desired = "여"
+                                elif mode == "동성복식":
+                                    # 이미 고정된 값이 있으면 그 성별 우선
+                                    fixed = next((x for x in eff_tmp if x != "선택"), None)
+                                    desired = _gender_of(fixed) if fixed else None
+                                    if desired is None:
+                                        # 가능한 쪽 우선
+                                        need = len(empty_keys)
+                                        can_m = len([p for p in men if counts.get(p,0) <= (min(counts.values())+1)]) >= need
+                                        can_f = len([p for p in women if counts.get(p,0) <= (min(counts.values())+1)]) >= need
+                                        if can_m and can_f:
+                                            desired = rng.choice(["남","여"])
+                                        elif can_m:
+                                            desired = "남"
+                                        elif can_f:
+                                            desired = "여"
+                                        else:
+                                            desired = None
+                                else:
+                                    desired = None  # 랜덤
+
+                                # 후보군 구성(엄격: 해당 성별 인원 부족하면 실패 → 재시도)
+                                if desired == "남":
+                                    cand_base = list(men)
+                                elif desired == "여":
+                                    cand_base = list(women)
+                                else:
+                                    cand_base = list(men + women)
+
+                                # 채우기(순차)
+                                for kk in empty_keys:
+                                    i = pos_map.get(kk, None)
+                                    mate_i = (i - 1) if (i % 2 == 1) else (i + 1)
+                                    mate = eff_tmp[mate_i] if 0 <= mate_i < 4 else "선택"
+                                    ref = _ntrp_of(mate) if mate != "선택" else None
+
+                                    pick = _fair_pick(cand_base, counts, rng, ref_ntrp=ref, ntrp_on=bool(manual_fill_ntrp))
+                                    if pick is None:
+                                        ok = False; break
+
+                                    if not _take(pick):
+                                        ok = False; break
+
+                                    plan[kk] = pick
+                                    auto_keys.add(kk)
+                                    eff_tmp[i] = pick
+
+                                    if pick in cand_base:
+                                        cand_base.remove(pick)
+                                    if pick in men:
+                                        men.remove(pick)
+                                    if pick in women:
+                                        women.remove(pick)
+
+                                if not ok:
+                                    break
+
+                        if not ok:
+                            break
+
+                    if ok:
+                        return plan, auto_keys
+
+                return {}, set()
+            if fill_all_clicked and players_selected:
                 # ✅ 버튼 누를 때마다 결과가 달라지게
                 seed_base = int(random.random() * 1_000_000_000)
                 st.session_state["_manual_fill_seed"] = seed_base
 
                 plan_all = {}
                 auto_all = set()
-                for rr in range(1, int(total_rounds) + 1):
-                    plan_r, auto_r = _fill_round_plan(
-                        r=rr,
-                        players_selected=players_selected,
-                        court_count=court_count,
-                        gtype=gtype,
-                        view_mode=view_mode_for_schedule,
-                        gender_mode=gm,
-                        ntrp_on=bool(manual_fill_ntrp),
-                        seed_base=seed_base,
-                        same_gender_submode=("동성복식" if gm == "동성" else None),
-                    )
-                    plan_all.update(plan_r)
-                    auto_all |= set(auto_r or [])
+
+                if court_custom_on:
+                    # ✅ 코트별 타입 + 공평성(최대 1게임 차) 적용
+                    plan_all, auto_all = _fill_manual_fair(target_by_round=None, seed_base=seed_base)
+                else:
+                    # ✅ 기존 전역 성별 옵션 로직 유지
+                    gm = _manual_gender_to_mode(manual_gender_mode)
+
+                    for rr in range(1, int(total_rounds) + 1):
+                        plan_r, auto_r = _fill_round_plan(
+                            r=rr,
+                            players_selected=players_selected,
+                            court_count=court_count,
+                            gtype=gtype,
+                            view_mode=view_mode_for_schedule,
+                            gender_mode=gm,
+                            ntrp_on=bool(manual_fill_ntrp),
+                            seed_base=seed_base,
+                            same_gender_submode=(manual_samegender_submode if gm == "동성" else None),
+                        )
+                        plan_all.update(plan_r)
+                        auto_all |= set(auto_r or [])
 
                 if plan_all:
                     _apply_plan_to_state(plan_all, auto_all)
                 else:
-                    st.info("이미 채울 빈칸이 없어.")
+                    st.info("이미 채울 빈칸이 없습니다.")
 
             # ✅ 게임 UI (라운드 구분 없이 나열 + 체크된 게임만 처리)
             # -------------------------
@@ -6956,7 +7293,6 @@ def render_tab_today_session(tab):
 
             # ✅ 체크된 게임 빈칸 채우기
             if fill_checked_clicked and players_selected and selected_games:
-                gm = _manual_gender_to_mode(manual_gender_mode)
 
                 # ✅ 버튼 누를 때마다 결과가 달라지게
                 seed_base = int(random.random() * 1_000_000_000)
@@ -6969,26 +7305,34 @@ def render_tab_today_session(tab):
 
                 plan_all = {}
                 auto_all = set()
-                for rr, c_list in by_round.items():
-                    plan_r, auto_r = _fill_round_plan(
-                        r=int(rr),
-                        players_selected=players_selected,
-                        court_count=court_count,
-                        gtype=gtype,
-                        view_mode=view_mode_for_schedule,
-                        gender_mode=gm,
-                        ntrp_on=bool(manual_fill_ntrp),
-                        target_courts=c_list,
-                        seed_base=seed_base,
-                        same_gender_submode=(manual_samegender_submode if gm == "동성" else None),
-                    )
-                    plan_all.update(plan_r)
-                    auto_all |= set(auto_r or [])
+
+                if court_custom_on:
+                    # ✅ 코트별 타입 + 공평성(최대 1게임 차) 적용
+                    plan_all, auto_all = _fill_manual_fair(target_by_round=by_round, seed_base=seed_base)
+                else:
+                    # ✅ 기존 전역 성별 옵션 로직 유지
+                    gm = _manual_gender_to_mode(manual_gender_mode)
+
+                    for rr, c_list in by_round.items():
+                        plan_r, auto_r = _fill_round_plan(
+                            r=int(rr),
+                            players_selected=players_selected,
+                            court_count=court_count,
+                            gtype=gtype,
+                            view_mode=view_mode_for_schedule,
+                            gender_mode=gm,
+                            ntrp_on=bool(manual_fill_ntrp),
+                            target_courts=c_list,
+                            seed_base=seed_base,
+                            same_gender_submode=(manual_samegender_submode if gm == "동성" else None),
+                        )
+                        plan_all.update(plan_r)
+                        auto_all |= set(auto_r or [])
 
                 if plan_all:
                     _apply_plan_to_state(plan_all, auto_all)
                 else:
-                    st.info("체크된 게임에서 채울 빈칸이 없어.")
+                    st.info("체크된 게임에서 채울 빈칸이 없습니다.")
 
             st.markdown("<div style='height:0.4rem;'></div>", unsafe_allow_html=True)
 
@@ -7022,6 +7366,28 @@ def render_tab_today_session(tab):
                         f"<div class='msc-gamehead'><div style='font-weight:900;'>게임 {rr} · 코트 {cc}</div><div class='msc-chip-wrap'>{_chips}</div></div>",
                         unsafe_allow_html=True,
                     )
+
+                # ✅ 코트(게임)별 대진 방식 선택 (커스텀 모드 ON일 때)
+                if court_custom_on:
+                    _court_mode_key = f"court_mode_game_{gno}"
+                    if _court_mode_key not in st.session_state:
+                        # 전역 성별 옵션을 기본값으로 매핑
+                        if manual_gender_mode == "혼합":
+                            st.session_state[_court_mode_key] = "혼합복식"
+                        elif manual_gender_mode == "동성":
+                            st.session_state[_court_mode_key] = (manual_samegender_submode or "동성복식")
+                        else:
+                            st.session_state[_court_mode_key] = "랜덤"
+
+                    st.radio(
+                        "",
+                        ["랜덤", "동성복식", "남성복식", "여성복식", "혼합복식"],
+                        horizontal=True,
+                        key=_court_mode_key,
+                        label_visibility="collapsed",
+                    )
+
+
 
                 # 코트 그룹(조별 분리) 반영
                 grp_tag = _court_group_tag(view_mode_for_schedule, cc)
