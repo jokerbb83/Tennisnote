@@ -670,33 +670,85 @@ def init_session_state():
 # ✅ Streamlit 호환 래퍼 (deprecated API 우선 교체)
 # =========================================================
 def safe_rerun():
-    if hasattr(st, "rerun"):
-        st.rerun()
-    elif hasattr(st, "experimental_rerun"):
-        safe_rerun()
+    """Streamlit 버전 차이를 흡수한 rerun 래퍼."""
+    try:
+        if hasattr(st, "rerun"):
+            st.rerun()
+            return
+    except Exception:
+        pass
+
+    try:
+        # 구버전 호환
+        if hasattr(st, "experimental_rerun"):
+            st.experimental_rerun()
+            return
+    except Exception:
+        pass
+
 
 def get_query_params() -> dict:
+    """신버전(st.query_params) 우선 + 구버전(st.experimental_get_query_params) 폴백."""
     try:
-        return dict(st.query_params)
+        qp = getattr(st, "query_params", None)
+        if qp is not None:
+            # st.query_params는 Mapping-like
+            return dict(qp)
     except Exception:
-        try:
-            return get_query_params()
-        except Exception:
-            return {}
+        pass
+
+    try:
+        fn = getattr(st, "experimental_get_query_params", None)
+        if fn:
+            return dict(fn())
+    except Exception:
+        pass
+
+    return {}
+
 
 def set_query_params(**kwargs):
+    """신버전(st.query_params) 우선 + 구버전(st.experimental_set_query_params) 폴백."""
+    # 1) 신버전
     try:
-        for k, v in kwargs.items():
-            if v is None:
-                if k in st.query_params:
-                    del st.query_params[k]
-            else:
-                st.query_params[k] = str(v)
+        qp = getattr(st, "query_params", None)
+        if qp is not None:
+            for k, v in kwargs.items():
+                if v is None:
+                    try:
+                        qp.pop(k, None)
+                    except Exception:
+                        try:
+                            del qp[k]
+                        except Exception:
+                            pass
+                else:
+                    qp[k] = str(v)
+            return
     except Exception:
-        try:
-            set_query_params(**kwargs)
-        except Exception:
-            pass
+        pass
+
+    # 2) 구버전(주의: 넘겨준 값만 남길 수 있어서, 기존을 읽어 merge)
+    try:
+        fn_get = getattr(st, "experimental_get_query_params", None)
+        fn_set = getattr(st, "experimental_set_query_params", None)
+        if fn_get and fn_set:
+            cur = fn_get() or {}
+            merged = {}
+            for k, vv in cur.items():
+                if isinstance(vv, list) and vv:
+                    merged[k] = vv[0]
+                elif isinstance(vv, str):
+                    merged[k] = vv
+            for k, v in kwargs.items():
+                if v is None:
+                    merged.pop(k, None)
+                else:
+                    merged[k] = str(v)
+            fn_set(**merged)
+            return
+    except Exception:
+        pass
 
 # =========================================================
 # ✅ 멀티 동호회 + 로그인(구글/이메일) + 클럽코드
@@ -1162,6 +1214,36 @@ FORCE_READ_ONLY = os.getenv("MSC_READ_ONLY", "0").strip() == "1"
 READ_ONLY = FORCE_READ_ONLY or IS_SCOREBOARD or (not IS_ADMIN_USER)
 
 APP_TITLE = f"{CLUB_NAME()} {APP_PURPOSE_NAME()}"
+
+
+# =========================================================
+# ✅ (중요) 로그인/클럽코드 확정 후 전역 컨텍스트 갱신
+#   - 최적화 과정에서 PLAYERS_FILE/SESSIONS_FILE을 '모듈 로드 시점'에 계산하면,
+#     최초 진입(클럽 미선택)에서는 접두사가 비어서 데이터가 안 불러와질 수 있음.
+#   - 그래서 ensure_login_and_club() 이후에 항상 한 번 갱신해 준다.
+# =========================================================
+def refresh_club_context(active_club_code: str | None):
+    global DATA_FILE_PREFIX, PLAYERS_FILE, SESSIONS_FILE, USER_EMAIL, ADMIN_EMAILS, IS_ADMIN_USER, READ_ONLY, APP_TITLE
+
+    code = _sanitize_club_code(active_club_code or st.session_state.get("club_code", DEFAULT_CLUB_CODE)).upper()
+    if code:
+        st.session_state["club_code"] = code
+
+    DATA_FILE_PREFIX = code or _sanitize_club_code(DEFAULT_CLUB_CODE).upper()
+    PLAYERS_FILE = f"{DATA_FILE_PREFIX}_players.json"
+    SESSIONS_FILE = f"{DATA_FILE_PREFIX}_sessions.json"
+
+    # 권한/읽기전용도 클럽코드 확정 후 다시 계산
+    USER_EMAIL = (st.session_state.get("user_email") or "").strip()
+    ADMIN_EMAILS = _get_admin_emails_for_club(DATA_FILE_PREFIX)
+    IS_ADMIN_USER = bool(USER_EMAIL) and (USER_EMAIL.lower() in ADMIN_EMAILS) if ADMIN_EMAILS else (APP_MODE == "admin")
+
+    force_ro = os.getenv("MSC_READ_ONLY", "0").strip() == "1"
+    READ_ONLY = force_ro or IS_SCOREBOARD or (not IS_ADMIN_USER)
+
+    # set_page_config은 이미 끝났지만, 화면 타이틀/푸터 등에 쓰는 문자열은 최신으로 유지
+    APP_TITLE = f"{CLUB_NAME()} {APP_PURPOSE_NAME()}"
+
 
 
 def render_footer():
@@ -4132,6 +4214,7 @@ inject_style_once("MOBILE_CSS")
 #   - 준비될 때까지 여기서 멈추고, 준비되면 아래 로드 로직 진행
 # ---------------------------------------------------------
 _active_club_code = ensure_login_and_club()
+refresh_club_context(_active_club_code)
 
 # ✅ 클럽 변경 시(또는 첫 진입 시) roster/sessions를 반드시 해당 클럽 기준으로 다시 로드
 if st.session_state.get("_loaded_club_code") != _active_club_code:
