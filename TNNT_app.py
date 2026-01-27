@@ -6821,6 +6821,67 @@ def render_tab_today_session(tab):
                 st.session_state.aa_seed_players = _cur_seed
 
             if _aa_slots:
+                # ✅ 시드 UI(예쁜 카드 + 순서형 선택)
+                st.markdown(
+                    """
+<style>
+.tnnt-seed-card{
+  border:1px solid rgba(148,163,184,0.35);
+  background: rgba(248,250,252,0.9);
+  padding: 14px 14px 12px 14px;
+  border-radius: 14px;
+  margin-top: 10px;
+  margin-bottom: 10px;
+}
+.tnnt-seed-title{
+  font-weight:800;
+  font-size:1.02rem;
+  margin-bottom:6px;
+}
+.tnnt-seed-desc{
+  color:#475569;
+  font-size:0.92rem;
+  line-height:1.35;
+  margin-bottom:10px;
+}
+.tnnt-seed-chips{
+  display:flex;
+  flex-wrap:wrap;
+  gap:6px;
+  margin-top:6px;
+}
+.tnnt-seed-chip{
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  padding:4px 10px;
+  border-radius:999px;
+  border:1px solid rgba(148,163,184,0.45);
+  background: rgba(255,255,255,0.85);
+  font-weight:700;
+  font-size:0.88rem;
+  color:#0f172a;
+}
+.tnnt-seed-chip small{
+  font-weight:800;
+  color:#334155;
+  opacity:0.9;
+}
+.tnnt-seed-preview{
+  margin-top:10px;
+  padding:10px 12px;
+  border-radius:12px;
+  border:1px dashed rgba(148,163,184,0.6);
+  background: rgba(255,255,255,0.75);
+  font-size:0.93rem;
+  line-height:1.45;
+}
+.tnnt-seed-preview b{ font-weight:800; }
+</style>
+                    """,
+                    unsafe_allow_html=True,
+                )
+
                 st.checkbox(
                     "시드 추가",
                     value=bool(st.session_state.get("aa_seed_enabled", False)),
@@ -6830,40 +6891,96 @@ def render_tab_today_session(tab):
 
                 if st.session_state.get("aa_seed_enabled", False):
                     _slots_txt = ", ".join(_aa_slots)
-                    st.caption(
-                        f"현재 {_aa_n}명에서는 시드를 최대 {len(_aa_slots)}명까지 선택할 수 있어요. "
-                        f"(순번: {_slots_txt})\n"
-                        f"선택한 순서대로 해당 순번에 자동 배치됩니다."
+
+                    st.markdown(
+                        f"""
+<div class="tnnt-seed-card">
+  <div class="tnnt-seed-title">🌱 시드 자리 지정</div>
+  <div class="tnnt-seed-desc">
+    현재 <b>{_aa_n}명</b>에서는 시드를 <b>최대 {len(_aa_slots)}명</b>까지 지정할 수 있어요.<br/>
+    아래에서 <b>1번 시드 → 2번 시드 → …</b> 순서대로 선택하면, 자동으로 <b>{_slots_txt}</b> 자리에 고정 배치됩니다.
+  </div>
+  <div class="tnnt-seed-chips">
+    {"".join([f'<span class="tnnt-seed-chip"><small>자리</small> {tok}</span>' for tok in _aa_slots])}
+  </div>
+</div>
+                        """,
+                        unsafe_allow_html=True,
                     )
 
-                    # Streamlit 버전에 따라 max_selections 지원 유무가 달라서 방어적으로 처리
-                    try:
-                        _seeds = st.multiselect(
-                            f"시드 선수 선택 (최대 {len(_aa_slots)}명)",
-                            options=players_selected,
-                            default=_cur_seed[: len(_aa_slots)],
-                            key="aa_seed_players",
-                            max_selections=len(_aa_slots),
-                        )
-                    except TypeError:
-                        _seeds = st.multiselect(
-                            f"시드 선수 선택 (최대 {len(_aa_slots)}명)",
-                            options=players_selected,
-                            default=_cur_seed[: len(_aa_slots)],
-                            key="aa_seed_players",
-                        )
+                    # -------------------------------------------------
+                    # ✅ 순서형 시드 선택(1번 시드, 2번 시드...)
+                    #   - 앞 시드가 비어있으면 다음 시드는 비활성화(순서 꼬임 방지)
+                    #   - 중복 선택 방지
+                    # -------------------------------------------------
+                    # 현재 인원에서 제외된 시드 자동 정리(+ 키 값도 같이 정리)
+                    for i in range(1, len(_aa_slots) + 1):
+                        k = f"aa_seed_pick_{i}"
+                        curv = st.session_state.get(k, "(선택)")
+                        if curv != "(선택)" and curv not in (players_selected or []):
+                            st.session_state[k] = "(선택)"
+                    # 슬롯 개수가 줄어들면 나머지 키는 비워두기
+                    for j in range(len(_aa_slots) + 1, 10):
+                        k = f"aa_seed_pick_{j}"
+                        if k in st.session_state:
+                            st.session_state[k] = "(선택)"
 
-                    if isinstance(_seeds, list) and len(_seeds) > len(_aa_slots):
-                        st.warning(f"시드는 최대 {len(_aa_slots)}명까지 선택할 수 있어요. 초과 선택은 자동으로 제외했어요.")
-                        _seeds = _seeds[: len(_aa_slots)]
-                        st.session_state.aa_seed_players = _seeds
+                    _picked = []
+                    _used = set()
+
+                    # 보기 좋은 2열 배치(슬롯 수에 따라 자동)
+                    cols = st.columns(2) if len(_aa_slots) >= 3 else st.columns(1)
+
+                    for i, tok in enumerate(_aa_slots, start=1):
+                        # 다음 시드는 이전 시드가 비어있으면 비활성화
+                        disabled = False
+                        if i > 1 and st.session_state.get(f"aa_seed_pick_{i-1}", "(선택)") == "(선택)":
+                            disabled = True
+
+                        key = f"aa_seed_pick_{i}"
+                        prev = st.session_state.get(key, "(선택)")
+
+                        opts = ["(선택)"] + [
+                            p for p in (players_selected or [])
+                            if (p not in _used) or (p == prev)
+                        ]
+
+                        # 열 배치
+                        target_col = cols[(i - 1) % len(cols)]
+                        with target_col:
+                            st.caption(f"{i}번 시드 → {tok}자리")
+                            val = st.selectbox(
+                                f"seed_{i}_{tok}",
+                                options=opts,
+                                index=opts.index(prev) if prev in opts else 0,
+                                key=key,
+                                label_visibility="collapsed",
+                                disabled=disabled,
+                            )
+
+                        # disabled일 때는 강제로 비움 유지
+                        if disabled:
+                            st.session_state[key] = "(선택)"
+                            val = "(선택)"
+
+                        if val != "(선택)":
+                            _picked.append(val)
+                            _used.add(val)
+
+                    # 기존 로직과 호환되게 리스트로 저장(선택 순서대로 slots에 매핑)
+                    st.session_state.aa_seed_players = _picked
 
                     # 미리보기: "순번 -> 선수" 표시
-                    if _seeds:
+                    if _picked:
                         _preview = []
-                        for i, tok in enumerate(_aa_slots[: len(_seeds)]):
-                            _preview.append(f"{tok}번: {render_name_badge(_seeds[i], roster_by_name)}")
-                        st.markdown("**시드 배치 미리보기**  \n" + " / ".join(_preview), unsafe_allow_html=True)
+                        for i, tok in enumerate(_aa_slots[: len(_picked)]):
+                            _preview.append(f"<b>{tok}번</b>: {render_name_badge(_picked[i], roster_by_name)}")
+                        st.markdown(
+                            "<div class='tnnt-seed-preview'><b>시드 배치 미리보기</b><br/>" + " / ".join(_preview) + "</div>",
+                            unsafe_allow_html=True,
+                        )
+                    else:
+                        st.caption("※ 시드를 지정하지 않으면, 기존 한울 AA 기본 순서로 대진이 생성돼요.")
             else:
                 # 5명(또는 규칙이 없는 인원)에서는 시드 기능 비활성화
                 st.session_state.aa_seed_enabled = False
