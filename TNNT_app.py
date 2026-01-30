@@ -9605,7 +9605,8 @@ with tab3:
                                 _court_ints.append(_cc)
                         except Exception:
                             pass
-                    _round_court_count = max(_court_ints) if _court_ints else 3
+                    _court_set = sorted(set(_court_ints))
+                    _round_court_count = len(_court_set) if _court_set else 3
 
                     # 실제 게임들
                     for local_no, (idx, gtype, t1, t2, court) in enumerate(game_list, start=1):
@@ -10495,177 +10496,264 @@ with tab3:
                                             st.session_state["_flash_day_edit_msg"] = "✅ 게임 순서 교환 완료! (점수도 교환됐는지 확인 바람)"
                                             safe_rerun()
                                 # -----------------------------
-                                # (C) 게임 삭제 (코트별)
-                                #   - 하루 전체가 아니라, 특정 코트의 게임만 삭제
-                                #   - 선택한 1게임 삭제 / 선택한 코트의 게임 전체 삭제
+                                                                # -----------------------------
+                                # (C) 게임 삭제 (게임별)
+                                #   - '게임(라운드)'을 먼저 고르고, 그 다음 코트를 고른 뒤 삭제
+                                #   - 선택한 1게임(라운드+코트) 삭제 / 선택한 코트의 게임 전체 삭제
                                 #   - schedule + results를 함께 정리하고, 위젯 키도 초기화
                                 # -----------------------------
                                 st.markdown("---")
-                                st.markdown("#### 🗑 게임 삭제 (코트별)")
+                                st.markdown("#### 🗑 게임 삭제 (게임별)")
 
                                 # ✅ 잠금(점수 잠금) 상태면 삭제 불가
                                 _locked_day = sessions.get(sel_date, {}).get("scores_locked", False)
 
-                                _courts = sorted({c for (_, _, _, c) in _sched_now})
-                                if not _courts:
+                                def _court_to_int(_c):
+                                    try:
+                                        return int(str(_c).strip())
+                                    except Exception:
+                                        try:
+                                            s = "" if _c is None else str(_c)
+                                            digits = "".join([ch for ch in s if ch.isdigit()])
+                                            return int(digits) if digits else None
+                                        except Exception:
+                                            return None
+
+                                def _team_join_one(team):
+                                    if isinstance(team, (list, tuple)):
+                                        return " / ".join([str(x) for x in team if str(x).strip() != ""])
+                                    return str(team) if team is not None else ""
+
+                                # 현재 스케줄에서 '한 라운드의 코트 수' 추정: 코트 번호 최대값을 기본으로 사용
+                                _court_ints = [_court_to_int(c) for (_, _, _, c) in _sched_now]
+                                _court_ints = [x for x in _court_ints if isinstance(x, int) and x > 0]
+                                _court_set = sorted(set(_court_ints))
+                                _round_court_count = len(_court_set) if _court_set else 1
+
+                                n_games_local = len(_sched_now)
+                                if n_games_local <= 0:
                                     st.info("삭제할 게임이 없습니다.")
                                 else:
-                                    del_court = st.selectbox(
-                                        "삭제할 코트",
-                                        _courts,
-                                        key=f"del_court_{sel_date}",
+                                    n_rounds = int(math.ceil(n_games_local / float(_round_court_count))) if _round_court_count else 1
+                                    round_opts = list(range(1, n_rounds + 1))
+
+                                    del_round = st.selectbox(
+                                        "삭제할 게임",
+                                        round_opts,
+                                        format_func=lambda r: f"게임 {r}",
+                                        key=f"del_round_{sel_date}",
                                         disabled=_locked_day,
                                     )
 
-                                    # 선택 코트의 게임 번호(1-based)
-                                    _idxs = [i for i, (_, _, _, c) in enumerate(_sched_now, start=1) if c == del_court]
+                                    # 선택 라운드에 해당하는 (전체 스케줄 기준) 1-based 인덱스 목록
+                                    s0 = (int(del_round) - 1) * int(_round_court_count)
+                                    e0 = min(int(del_round) * int(_round_court_count), n_games_local)
+                                    round_idxs = list(range(s0 + 1, e0 + 1))
 
-                                    if not _idxs:
-                                        st.info("선택한 코트에 삭제할 게임이 없습니다.")
+                                    # 라운드 내 존재하는 코트 목록(정렬)
+                                    round_courts = []
+                                    for i in round_idxs:
+                                        try:
+                                            c = _sched_now[i - 1][3]
+                                        except Exception:
+                                            c = None
+                                        ci = _court_to_int(c)
+                                        if ci is None:
+                                            continue
+                                        round_courts.append(ci)
+
+                                    round_courts = sorted(set(round_courts))
+                                    if not round_courts:
+                                        st.info("선택한 게임(라운드)에 삭제할 코트가 없습니다.")
                                     else:
-                                        del_game_no = st.selectbox(
-                                            "삭제할 게임",
-                                            _idxs,
-                                            format_func=lambda i: labels[i - 1] if (0 <= i - 1 < len(labels)) else f"{i}번",
-                                            key=f"del_game_{sel_date}_{del_court}",
+                                        del_court = st.selectbox(
+                                            "삭제할 코트",
+                                            round_courts,
+                                            key=f"del_court_{sel_date}_{del_round}",
                                             disabled=_locked_day,
                                         )
 
-                                        col_d1, col_d2 = st.columns(2)
-                                        with col_d1:
-                                            st.markdown('<div class="main-danger-btn">', unsafe_allow_html=True)
-                                            req_del_one = st.button(
-                                                "🗑 선택 게임 삭제",
-                                                use_container_width=True,
-                                                key=f"del_one_btn_{sel_date}",
-                                                disabled=_locked_day,
-                                            )
-                                            st.markdown("</div>", unsafe_allow_html=True)
+                                        # ✅ 라벨(전체 스케줄 기준)
+                                        labels_all = []
+                                        for _i, (_gt, _t1, _t2, _ct) in enumerate(_sched_now, start=1):
+                                            labels_all.append(f"{_i}번 ({_gt}, 코트 {_ct})  {_team_join_one(_t1)} vs {_team_join_one(_t2)}")
 
-                                        with col_d2:
-                                            st.markdown('<div class="main-danger-btn">', unsafe_allow_html=True)
-                                            req_del_court = st.button(
-                                                "🗑 이 코트 게임 전체 삭제",
-                                                use_container_width=True,
-                                                key=f"del_court_btn_{sel_date}",
-                                                disabled=_locked_day,
-                                            )
-                                            st.markdown("</div>", unsafe_allow_html=True)
+                                        # 선택 라운드+코트에 해당하는 실제 게임 인덱스(1-based)
+                                        idxs_one = []
+                                        for i in round_idxs:
+                                            _ct = _sched_now[i - 1][3]
+                                            if _court_to_int(_ct) == int(del_court):
+                                                idxs_one.append(int(i))
 
-                                        if _locked_day:
-                                            st.caption("※ 점수 잠금 상태에서는 삭제할 수 없습니다. (잠금을 해제한 뒤 진행하세요.)")
+                                        if not idxs_one:
+                                            st.info("선택한 게임/코트에 삭제할 경기가 없습니다.")
+                                        else:
+                                            # 일반적으로 1개지만, 혹시 중복이 있으면 첫 번째를 기본으로
+                                            target_idx_one = int(idxs_one[0])
+                                            st.caption(f"선택됨: {labels_all[target_idx_one - 1] if 0 <= target_idx_one - 1 < len(labels_all) else f'{target_idx_one}번'}")
 
-                                        # 삭제 요청 저장(확인 UI용)
-                                        if req_del_one:
-                                            st.session_state["_pending_delete_game"] = {
-                                                "date": sel_date,
-                                                "mode": "single",
-                                                "idxs": [int(del_game_no)],
-                                                "court": int(del_court),
-                                            }
-                                        if req_del_court:
-                                            st.session_state["_pending_delete_game"] = {
-                                                "date": sel_date,
-                                                "mode": "court",
-                                                "idxs": [int(x) for x in _idxs],
-                                                "court": int(del_court),
-                                            }
-
-                                        pending_del = st.session_state.get("_pending_delete_game")
-                                        if pending_del and pending_del.get("date") == sel_date:
-                                            _mode = pending_del.get("mode")
-                                            _court = pending_del.get("court")
-                                            _idxs2 = pending_del.get("idxs") or []
-                                            _idxs2 = [int(x) for x in _idxs2 if isinstance(x, (int, str))]
-
-                                            msg = (
-                                                f"코트 {_court}의 {(_idxs2[0] if _idxs2 else '?')}번 게임을 삭제할까요?"
-                                                if _mode == "single"
-                                                else f"코트 {_court}의 게임 {len(_idxs2)}개를 모두 삭제할까요?"
-                                            )
-                                            st.warning(msg)
-
-                                            col_ok2, col_cancel2 = st.columns(2)
-                                            with col_ok2:
+                                            col_d1, col_d2 = st.columns(2)
+                                            with col_d1:
                                                 st.markdown('<div class="main-danger-btn">', unsafe_allow_html=True)
-                                                yes_del = st.button(
-                                                    "네, 삭제합니다",
+                                                req_del_one = st.button(
+                                                    "🗑 선택 게임 삭제",
                                                     use_container_width=True,
-                                                    key=f"del_yes_{sel_date}",
+                                                    key=f"del_one_btn_{sel_date}",
                                                     disabled=_locked_day,
                                                 )
                                                 st.markdown("</div>", unsafe_allow_html=True)
 
-                                            with col_cancel2:
-                                                st.markdown('<div class="main-secondary-btn">', unsafe_allow_html=True)
-                                                no_del = st.button(
-                                                    "취소",
+                                            with col_d2:
+                                                st.markdown('<div class="main-danger-btn">', unsafe_allow_html=True)
+                                                req_del_court = st.button(
+                                                    "🗑 이 코트 게임 전체 삭제",
                                                     use_container_width=True,
-                                                    key=f"del_cancel_{sel_date}",
+                                                    key=f"del_court_btn_{sel_date}",
+                                                    disabled=_locked_day,
                                                 )
                                                 st.markdown("</div>", unsafe_allow_html=True)
 
-                                            if no_del:
-                                                st.session_state["_pending_delete_game"] = None
-                                                st.info("삭제를 취소했습니다.")
+                                            if _locked_day:
+                                                st.caption("※ 점수 잠금 상태에서는 삭제할 수 없습니다. (잠금을 해제한 뒤 진행하세요.)")
 
-                                            if yes_del and (not _locked_day):
-                                                # ✅ 안전망: 혹시 그 사이 잠금이 켜졌을 경우까지 방지
-                                                if sessions.get(sel_date, {}).get("scores_locked", False):
-                                                    st.warning("잠금을 먼저 해제하세요.")
-                                                else:
-                                                    # results를 list로 정규화
-                                                    old_results = day_data.get("results", {}) or {}
+                                            # 삭제 요청 저장(확인 UI용)
+                                            if req_del_one:
+                                                st.session_state["_pending_delete_game"] = {
+                                                    "date": sel_date,
+                                                    "mode": "single",
+                                                    "idxs": [int(target_idx_one)],
+                                                    "round": int(del_round),
+                                                    "court": int(del_court),
+                                                }
+                                            if req_del_court:
+                                                # 코트 전체 삭제는 '하루 전체에서 해당 코트'를 대상으로 함
+                                                _all_idxs = []
+                                                for i, (_, _, _, c) in enumerate(_sched_now, start=1):
+                                                    if _court_to_int(c) == int(del_court):
+                                                        _all_idxs.append(int(i))
+                                                st.session_state["_pending_delete_game"] = {
+                                                    "date": sel_date,
+                                                    "mode": "court",
+                                                    "idxs": [int(x) for x in _all_idxs],
+                                                    "round": int(del_round),
+                                                    "court": int(del_court),
+                                                }
 
-                                                    def _get_result_by_index(idx0: int):
-                                                        k1 = str(idx0 + 1)
-                                                        k2 = idx0 + 1
-                                                        if isinstance(old_results, dict):
-                                                            return old_results.get(k1) or old_results.get(k2) or {}
-                                                        if isinstance(old_results, list):
-                                                            return old_results[idx0] if idx0 < len(old_results) else {}
-                                                        return {}
+                                            pending_del = st.session_state.get("_pending_delete_game")
+                                            if pending_del and pending_del.get("date") == sel_date:
+                                                _mode = pending_del.get("mode")
+                                                _court = pending_del.get("court")
+                                                _round = pending_del.get("round")
+                                                _idxs2 = pending_del.get("idxs") or []
+                                                _idxs2 = [int(x) for x in _idxs2 if isinstance(x, (int, str)) and str(x).isdigit()]
 
-                                                    old_res_list = [_get_result_by_index(i) for i in range(n_games)]
+                                                msg = (
+                                                    f"게임 {_round} · 코트 {_court} (전체 {_idxs2[0] if _idxs2 else '?'}번)를 삭제할까요?"
+                                                    if _mode == "single"
+                                                    else f"코트 {_court}의 게임 {len(_idxs2)}개를 모두 삭제할까요?"
+                                                )
+                                                st.warning(msg)
 
-                                                    # 삭제할 인덱스(0-based) 집합
-                                                    del_set0 = {int(i) - 1 for i in _idxs2 if str(i).isdigit()}
-                                                    del_set0 = {i for i in del_set0 if 0 <= i < n_games}
+                                                col_ok2, col_cancel2 = st.columns(2)
+                                                with col_ok2:
+                                                    st.markdown('<div class="main-danger-btn">', unsafe_allow_html=True)
+                                                    yes_del = st.button(
+                                                        "네, 삭제합니다",
+                                                        use_container_width=True,
+                                                        key=f"del_yes_{sel_date}",
+                                                        disabled=_locked_day,
+                                                    )
+                                                    st.markdown("</div>", unsafe_allow_html=True)
 
-                                                    new_schedule = [g for i, g in enumerate(_sched_now) if i not in del_set0]
-                                                    new_res_list = [r for i, r in enumerate(old_res_list) if i not in del_set0]
+                                                with col_cancel2:
+                                                    st.markdown('<div class="main-secondary-btn">', unsafe_allow_html=True)
+                                                    no_del = st.button(
+                                                        "취소",
+                                                        use_container_width=True,
+                                                        key=f"del_cancel_{sel_date}",
+                                                    )
+                                                    st.markdown("</div>", unsafe_allow_html=True)
 
-                                                    new_n = len(new_schedule)
-                                                    new_results = {str(i + 1): (new_res_list[i] or {}) for i in range(new_n)}
+                                                if no_del:
+                                                    st.session_state["_pending_delete_game"] = None
+                                                    st.info("삭제를 취소했습니다.")
 
-                                                    day_data["schedule"] = new_schedule
-                                                    day_data["results"] = new_results
-                                                    sessions[sel_date] = day_data
-                                                    st.session_state.sessions = sessions
-                                                    save_sessions(sessions)
+                                                if yes_del and (not _locked_day):
+                                                    # ✅ 안전망: 혹시 그 사이 잠금이 켜졌을 경우까지 방지
+                                                    if sessions.get(sel_date, {}).get("scores_locked", False):
+                                                        st.warning("잠금을 먼저 해제하세요.")
+                                                    else:
+                                                        # results를 list로 정규화
+                                                        old_results = day_data.get("results", {}) or {}
 
-                                                    # ✅ 점수/사이드 위젯 키 초기화(삭제 후 인덱스 재정렬 반영)
-                                                    for i in range(1, n_games + 1):
+                                                        def _get_result_by_index(idx0: int):
+                                                            k1 = str(idx0 + 1)
+                                                            k2 = idx0 + 1
+                                                            if isinstance(old_results, dict):
+                                                                return old_results.get(k1) or old_results.get(k2) or {}
+                                                            if isinstance(old_results, list):
+                                                                return old_results[idx0] if idx0 < len(old_results) else {}
+                                                            return {}
+
+                                                        old_res_list = [_get_result_by_index(i) for i in range(n_games)]
+
+                                                        # 삭제할 인덱스(0-based) 집합
+                                                        del_set0 = {int(i) - 1 for i in _idxs2 if str(i).isdigit()}
+                                                        del_set0 = {i for i in del_set0 if 0 <= i < n_games}
+
+                                                        new_schedule = [g for i, g in enumerate(_sched_now) if i not in del_set0]
+                                                        new_res_list = [r for i, r in enumerate(old_res_list) if i not in del_set0]
+
+                                                        # ✅ (추가) 라운드 단위로 코트 번호 오름차순 정렬(경계선/표시 안정화)
+                                                        def _normalize_by_round(schedule_list, res_list):
+                                                            if not schedule_list:
+                                                                return schedule_list, res_list
+                                                            _cis = [_court_to_int(c) for (_, _, _, c) in schedule_list]
+                                                            _cis = [x for x in _cis if isinstance(x, int) and x > 0]
+                                                            _rcc = max(_cis) if _cis else 1
+                                                            out_s, out_r = [], []
+                                                            for base in range(0, len(schedule_list), int(_rcc)):
+                                                                chunk_s = schedule_list[base:base + int(_rcc)]
+                                                                chunk_r = res_list[base:base + int(_rcc)]
+                                                                pairs = list(zip(chunk_s, chunk_r))
+                                                                pairs.sort(key=lambda pr: (_court_to_int(pr[0][3]) or 10**9))
+                                                                out_s.extend([p[0] for p in pairs])
+                                                                out_r.extend([p[1] for p in pairs])
+                                                            return out_s, out_r
+
+                                                        new_schedule, new_res_list = _normalize_by_round(new_schedule, new_res_list)
+
+                                                        new_n = len(new_schedule)
+                                                        new_results = {str(i + 1): (new_res_list[i] or {}) for i in range(new_n)}
+
+                                                        day_data["schedule"] = new_schedule
+                                                        day_data["results"] = new_results
+                                                        sessions[sel_date] = day_data
+                                                        st.session_state.sessions = sessions
+                                                        save_sessions(sessions)
+
+                                                        # ✅ 점수/사이드 위젯 키 초기화(삭제 후 인덱스 재정렬 반영)
+                                                        for i in range(1, n_games + 1):
+                                                            for k in (
+                                                                f"{sel_date}_s1_{i}",
+                                                                f"{sel_date}_s2_{i}",
+                                                                f"{sel_date}_side_radio_{i}_t1",
+                                                                f"{sel_date}_side_radio_{i}_t2",
+                                                            ):
+                                                                if k in st.session_state:
+                                                                    del st.session_state[k]
+
+                                                        # ✅ 삭제 관련 상태 초기화
                                                         for k in (
-                                                            f"{sel_date}_s1_{i}",
-                                                            f"{sel_date}_s2_{i}",
-                                                            f"{sel_date}_side_radio_{i}_t1",
-                                                            f"{sel_date}_side_radio_{i}_t2",
+                                                            f"del_round_{sel_date}",
+                                                            f"del_court_{sel_date}_{del_round}",
                                                         ):
                                                             if k in st.session_state:
                                                                 del st.session_state[k]
 
-                                                    # ✅ 삭제 관련 상태 초기화
-                                                    for k in (
-                                                        f"del_court_{sel_date}",
-                                                        f"del_game_{sel_date}_{del_court}",
-                                                    ):
-                                                        if k in st.session_state:
-                                                            del st.session_state[k]
-
-                                                    st.session_state["_pending_delete_game"] = None
-                                                    st.session_state["_flash_day_edit_msg"] = "✅ 선택한 게임(코트)이 삭제되었습니다."
-                                                    safe_rerun()
+                                                        st.session_state["_pending_delete_game"] = None
+                                                        st.session_state["_flash_day_edit_msg"] = "✅ 선택한 게임이 삭제되었습니다."
+                                                        safe_rerun()
 
 # 2. 오늘의 요약 리포트 (자동 생성)
             # =====================================================
