@@ -187,48 +187,26 @@ def get_default_doubles_mode_label(club_code: str) -> str:
     return str(v).strip() if v else ""
 
 
-def _streamlit_auth_configured() -> bool:
-    """Streamlit 내장 OIDC 로그인(st.login / st.user) 설정 여부를 최대한 안전하게 판별."""
-    try:
-        # st.user는 있어도(auth 미설정이면) is_logged_in이 없을 수 있음
-        if not hasattr(st, "login"):
-            return False
-        if not hasattr(st, "user"):
-            return False
-        return hasattr(st.user, "is_logged_in")
-    except Exception:
-        return False
-
-
 def _get_user_email_from_streamlit() -> str | None:
-    """가능하면 Streamlit 인증 정보에서 이메일을 가져온다.
-
-    우선순위:
-      1) Streamlit 내장 OIDC 로그인: st.user (Streamlit >= 1.42 권장)
-      2) 레거시/호환: st.experimental_user (Community Cloud에서만 잡히던 케이스)
-    """
-    # 1) 최신: st.user (OIDC 설정 + 로그인 성공 시)
+    """가능하면 Streamlit 인증 정보에서 이메일을 가져온다."""
+    # Streamlit 버전/배포환경에 따라 제공 키가 조금 다를 수 있어서 방어적으로 처리
     try:
-        if hasattr(st, "user") and hasattr(st.user, "is_logged_in") and bool(getattr(st.user, "is_logged_in")):
-            try:
-                uinfo = st.user.to_dict()  # type: ignore[attr-defined]
-            except Exception:
-                uinfo = st.user if isinstance(st.user, dict) else dict(st.user)
+        u = getattr(st, "experimental_user", None)
+        if u:
+            uinfo = u if isinstance(u, dict) else dict(u)
             email = (
-                (uinfo.get("email") if isinstance(uinfo, dict) else None)
-                or (uinfo.get("email_address") if isinstance(uinfo, dict) else None)
-                or (uinfo.get("preferred_username") if isinstance(uinfo, dict) else None)
-                or (uinfo.get("user_email") if isinstance(uinfo, dict) else None)
-                or (uinfo.get("login") if isinstance(uinfo, dict) else None)
+                uinfo.get("email")
+                or uinfo.get("email_address")
+                or uinfo.get("user_email")
+                or uinfo.get("login")
             )
             if email:
                 return str(email).strip()
     except Exception:
         pass
 
-    # 2) 레거시: st.experimental_user
     try:
-        u = getattr(st, "experimental_user", None)
+        u = getattr(st, "user", None)
         if u:
             uinfo = u if isinstance(u, dict) else dict(u)
             email = (
@@ -387,92 +365,19 @@ def ensure_login_and_club():
     # 5) Sidebar: 로그인/현재 클럽 표시(클럽 변경은 '설정' 탭에서)
     with st.sidebar:
         st.markdown("### 🔐 로그인")
-
-        # ✅ Streamlit 내장 OIDC 로그인(st.login) 사용 가능하면 우선 제공
-        auth_cfg = _streamlit_auth_configured()
         email = (st.session_state.get("user_email") or "").strip()
-
-        if auth_cfg:
-            # 로그인 전이면 로그인 버튼을 먼저 보여줌
-            try:
-                logged_in = bool(getattr(st.user, "is_logged_in"))
-            except Exception:
-                logged_in = False
-
-            if not logged_in:
-                st.info("이 앱의 **구글 로그인**은 Streamlit의 내장 OIDC 로그인 기능(st.login)을 사용합니다.\n지금은 아직 로그인 상태가 아니라서 이메일이 잡히지 않아요.")
-
-                # ✅ 구글 로그인 버튼
-                if st.button("Google로 로그인", use_container_width=True):
-                    try:
-                        st.login()
-                    except Exception as e:
-                        st.error(f"로그인 호출 실패: {e}")
-                    st.stop()
-
-                # (선택) 로그인 없이도 통계만 볼 수 있게 유지: 임시 이메일 입력
-                st.markdown("— 또는 —")
-                email_in = st.text_input(
-                    "이메일(임시 로그인 · 로컬/인증 미설정용)",
-                    value="",
-                    placeholder="you@gmail.com",
-                    key="tmp_login_email",
-                )
-                if st.button("임시 로그인", use_container_width=True):
-                    email_in = (email_in or "").strip()
-                    if not email_in:
-                        st.warning("이메일을 입력해 주세요.")
-                        st.stop()
-                    st.session_state["user_email"] = email_in
-                    st.rerun()
-
-                with st.expander("로그인 진단(왜 안 잡히는지 확인)", expanded=False):
-                    st.write(
-                        {
-                            "has_st_login": hasattr(st, "login"),
-                            "has_st_logout": hasattr(st, "logout"),
-                            "has_st_user": hasattr(st, "user"),
-                            "user_has_is_logged_in": hasattr(getattr(st, "user", None), "is_logged_in"),
-                            "st_user_raw": (
-                                getattr(st, "user", None).to_dict()
-                                if hasattr(getattr(st, "user", None), "to_dict")
-                                else str(getattr(st, "user", None))
-                            ),
-                        }
-                    )
-                    st.caption(
-                        "✅ 해결 방법: `.streamlit/secrets.toml`에 `[auth]` 설정(redirect_uri/cookie_secret/client_id/client_secret/server_metadata_url)을 넣어야 "
-                        "구글 로그인 버튼이 실제로 동작해요."
-                    )
-
-            else:
-                # 로그인된 경우: st.user에서 이메일을 동기화
-                auto_email = _get_user_email_from_streamlit()
-                if auto_email and not email:
-                    st.session_state["user_email"] = auto_email
-                    email = auto_email
-                st.caption(f"로그인: **{email or '확인 불가'}**")
-                if hasattr(st, "logout") and st.button("로그아웃", use_container_width=True):
-                    try:
-                        st.logout()
-                    except Exception:
-                        pass
-                    st.session_state.pop("user_email", None)
-                    st.rerun()
+        if email:
+            st.caption(f"로그인: **{email}**")
         else:
-            # ✅ auth 미설정 환경(로컬/미배포/구형): 임시 이메일 입력 폴백
-            if email:
-                st.caption(f"로그인: **{email}**")
-            else:
-                st.info("구글 로그인이 설정되지 않은 환경입니다. (로컬/인증 미설정)\n임시로 이메일을 입력해 주세요.")
-                email_in = st.text_input("이메일(임시 로그인)", value="", placeholder="you@gmail.com", key="tmp_login_email")
-                if st.button("로그인", use_container_width=True):
-                    email_in = (email_in or "").strip()
-                    if not email_in:
-                        st.warning("이메일을 입력해 주세요.")
-                        st.stop()
-                    st.session_state["user_email"] = email_in
-                    st.rerun()
+            st.info("구글 로그인이 연결되지 않은 환경입니다. (로컬/인증 미설정)\n임시로 이메일을 입력해 주세요.")
+            email_in = st.text_input("이메일(임시 로그인)", value="", placeholder="you@gmail.com", key="tmp_login_email")
+            if st.button("로그인", use_container_width=True):
+                email_in = (email_in or "").strip()
+                if not email_in:
+                    st.warning("이메일을 입력해 주세요.")
+                    st.stop()
+                st.session_state["user_email"] = email_in
+                st.rerun()
 
         st.markdown("---")
         if active_code:
@@ -7251,6 +7156,46 @@ def render_tab_today_session(tab):
 
                 return rng.choice(best)
 
+            def _fair_pick_japbok(
+                cands,
+                counts: Counter,
+                japbok_counter: Counter,
+                rng: random.Random,
+                ref_ntrp=None,
+                ntrp_on: bool = False,
+            ):
+                """✅ 잡복(남1여3 / 여1남3) 슬롯에 들어가는 사람 중복 최소화 픽.
+
+                - 1차: (최대 1게임 차) 공평성 규칙(_fair_pick의 eligible) 유지
+                - 2차: japbok_counter(잡복 참여 횟수) 최소인 사람 우선
+                - 3차: _fair_pick 로직(게임수 최소 / NTRP 근접) 재사용
+                """
+                cands = [c for c in (cands or []) if c is not None]
+                if not cands:
+                    return None
+
+                # _fair_pick의 eligible(최대 1게임 차) 필터를 동일하게 적용
+                try:
+                    cur_min = min(counts.values()) if counts else 0
+                except Exception:
+                    cur_min = 0
+
+                eligible = [p for p in cands if counts.get(p, 0) <= cur_min + 1]
+                if not eligible:
+                    return None
+
+                try:
+                    min_j = min(int(japbok_counter.get(p, 0)) for p in eligible)
+                except Exception:
+                    min_j = 0
+
+                best = [p for p in eligible if int(japbok_counter.get(p, 0)) == min_j]
+                if not best:
+                    best = eligible
+
+                # 남은 것은 _fair_pick에 위임(게임수 최소/NTRP)
+                return _fair_pick(best, counts, rng, ref_ntrp=ref_ntrp, ntrp_on=ntrp_on)
+
             def _fill_manual_fair(target_by_round: dict | None, seed_base: int):
                 """수동 배정 자동 채우기(공평성 + 코트별 타입).
 
@@ -7316,11 +7261,149 @@ def render_tab_today_session(tab):
                     used_by_round = {rr: set(vs) for rr, vs in used_by_round_base.items()}
                     plan = {}
                     auto_keys = set()
+                    # ✅ 잡복(남1여3 / 여1남3) 참여 횟수(이번 시도 내에서만) — 중복 최소화
+                    japbok_counter = Counter()
 
                     ok = True
 
                     for rr in range(1, int(total_rounds) + 1):
                         used = used_by_round[int(rr)]
+
+                        # -------------------------------------------------
+                        # ✅ 혼합복식인데 성비가 2:2로 안 맞을 때(=잡복 필요)
+                        #    같은 사람(예: 특정 남자)만 계속 잡복에 끼지 않도록
+                        #    라운드 단위로 '잡복 담당자'를 예약해서 분산
+                        # -------------------------------------------------
+                        solo_def_gender = None           # '남' or '여'
+                        solo_courts = set()              # 잡복이 허용되는 코트들(해당 성별 1명만)
+                        solo_reserve_by_court = {}       # {cc: reserved_player}
+                        solo_reserved_players = set()    # 다른 코트에서 뽑히지 않도록 차단
+
+                        if gtype == "복식":
+                            mixed_courts = []
+                            pool_by_court = {}
+                            fixed_gender_cnt = {}  # {cc: (fixed_m, fixed_f)}  (keep 슬롯만)
+                            fixed_keep_vals = {}  # {cc: [v1,v2,v3,v4]}  (keep 슬롯만)
+
+                            # 이 라운드에서 혼합복식인 코트들 수집
+                            for cc2 in range(1, int(court_count) + 1):
+                                if not _is_target(rr, cc2):
+                                    continue
+                                mode2 = _desired_mode_for_game(rr, cc2, court_count)
+                                if mode2 != "혼합복식":
+                                    continue
+
+                                grp2 = _court_group_tag(view_mode_for_schedule, cc2)
+                                pool2 = _pool_by_group(players_selected, grp2)
+                                pool_by_court[int(cc2)] = pool2
+                                mixed_courts.append(int(cc2))
+
+                                ks2 = [_manual_key(rr, cc2, i, gtype) for i in (1, 2, 3, 4)]
+                                vs2 = [_get_manual_value(k) for k in ks2]
+                                keep2 = [(v != "선택" and (not _is_auto_slot(k))) for k, v in zip(ks2, vs2)]
+                                eff2 = [v if kk else "선택" for v, kk in zip(vs2, keep2)]
+                                fm = sum(1 for v in eff2 if v != "선택" and _gender_of(v) == "남")
+                                ff = sum(1 for v in eff2 if v != "선택" and _gender_of(v) == "여")
+                                fixed_gender_cnt[int(cc2)] = (fm, ff)
+                                fixed_keep_vals[int(cc2)] = list(eff2)
+
+                            if mixed_courts:
+                                pool_union = set()
+                                for cc2 in mixed_courts:
+                                    pool_union.update(pool_by_court.get(int(cc2), []) or [])
+
+                                men_free = [p for p in pool_union if (p not in used) and (_gender_of(p) == "남")]
+                                women_free = [p for p in pool_union if (p not in used) and (_gender_of(p) == "여")]
+                                men_fixed = [p for p in used if (p in pool_union) and (_gender_of(p) == "남")]
+                                women_fixed = [p for p in used if (p in pool_union) and (_gender_of(p) == "여")]
+
+                                total_m = len(men_free) + len(men_fixed)
+                                total_f = len(women_free) + len(women_fixed)
+                                ideal = 2 * len(mixed_courts)
+                                deficit_m = max(0, ideal - total_m)
+                                deficit_f = max(0, ideal - total_f)
+
+                                # 둘 다 부족할 수 있지만, 일반적으로 한쪽만 부족(예: 남3 여5)
+                                if deficit_m or deficit_f:
+                                    if deficit_m >= deficit_f:
+                                        solo_def_gender = "남"
+                                        solo_k = deficit_m
+                                        free_list = list(men_free)
+                                    else:
+                                        solo_def_gender = "여"
+                                        solo_k = deficit_f
+                                        free_list = list(women_free)
+
+                                    # 잡복 코트 선택:
+                                    #  - 기본은 (이미 부족 성별 1명 고정)인 코트를 우선(추가 슬롯 없이 잡복 성립)
+                                    #  - 단, 고정된 사람이 이미 잡복을 많이 했다면(중복) 다른 코트를 먼저 쓰도록 가중치
+                                    cand = []
+                                    for cc2 in mixed_courts:
+                                        fm, ff = fixed_gender_cnt.get(int(cc2), (0, 0))
+                                        fixed_def = fm if solo_def_gender == "남" else ff
+                                        if fixed_def >= 2:
+                                            continue
+
+                                        pref = 0 if fixed_def == 1 else 1
+
+                                        # fixed_def==1인 코트는 '이미 고정된 솔로 후보'의 잡복 참여 횟수를 참고
+                                        jpref = 0
+                                        if fixed_def == 1:
+                                            eff_keep = fixed_keep_vals.get(int(cc2), []) or []
+                                            fixed_players = [
+                                                v for v in eff_keep
+                                                if v != "선택" and _gender_of(v) == solo_def_gender
+                                            ]
+                                            if fixed_players:
+                                                jpref = int(japbok_counter.get(fixed_players[0], 0))
+
+                                        cand.append((pref, jpref, rng.random(), int(cc2)))
+                                    cand.sort()
+
+                                    solo_courts = set([cc for _p, _j, _r, cc in cand[: int(solo_k)]])
+
+                                    # ✅ 잡복(남1여3 / 여1남3) 코트마다 '솔로(부족 성별 1명)'를 미리 지정해서 분산
+                                    #   - 해당 코트에 부족 성별이 이미 1명(수동 고정) 있으면 그 사람을 솔로로 고정
+                                    #   - 없으면 free_list에서 _fair_pick_japbok로 뽑아서 솔로로 예약
+                                    for cc2 in list(solo_courts):
+                                        fm, ff = fixed_gender_cnt.get(int(cc2), (0, 0))
+                                        fixed_def = fm if solo_def_gender == "남" else ff
+                                        if fixed_def >= 2:
+                                            continue
+
+                                        # (A) 이미 수동 고정으로 부족 성별이 1명 들어가 있으면 그 사람을 솔로로 지정
+                                        if fixed_def == 1:
+                                            eff_keep = fixed_keep_vals.get(int(cc2), []) or []
+                                            fixed_players = [
+                                                v for v in eff_keep
+                                                if v != "선택" and _gender_of(v) == solo_def_gender
+                                            ]
+                                            if fixed_players:
+                                                solo_reserve_by_court[int(cc2)] = fixed_players[0]
+                                                solo_reserved_players.add(fixed_players[0])
+                                            continue
+
+                                        # (B) 없으면: 이번 라운드 솔로 담당자를 공평 + 중복 최소로 선발
+                                        pick = _fair_pick_japbok(
+                                            free_list,
+                                            counts,
+                                            japbok_counter,
+                                            rng,
+                                            ntrp_on=bool(manual_fill_ntrp),
+                                        )
+                                        if pick is None:
+                                            ok = False
+                                            break
+
+                                        solo_reserve_by_court[int(cc2)] = pick
+                                        solo_reserved_players.add(pick)
+                                        try:
+                                            free_list.remove(pick)
+                                        except Exception:
+                                            pass
+
+                                    if not ok:
+                                        break
 
                         # 라운드 내: 코트별로 채우되, 타입은 게임별 선택을 따름
                         for cc in range(1, int(court_count) + 1):
@@ -7423,32 +7506,128 @@ def render_tab_today_session(tab):
                                 return True
 
                             if mode == "혼합복식":
-                                # 팀(0,1) / (2,3)이 무조건 남+여 / 남+여가 되도록
-                                for kk in empty_keys:
+                                # ✅ 기본은 남+여 / 남+여를 최대한 유지
+                                # ✅ 단, 성비가 2:2로 안 맞아서 잡복(남1여3/여1남3)이 필요한 라운드에서는
+                                #    특정 1명만 계속 잡복에 끼지 않도록(예: 박진균만 계속) 라운드 단위로 예약/분산
+
+                                is_solo_court = bool(solo_def_gender) and (int(cc) in set(solo_courts))
+                                blocked = set()
+                                if (not is_solo_court) and solo_reserved_players:
+                                    blocked = set(solo_reserved_players)
+
+                                # 잡복 코트이면, 예약된 사람을 우선 배치(해당 성별이 0명인 경우)
+                                if is_solo_court:
+                                    def_g = solo_def_gender  # '남' or '여'
+                                    cur_def_cnt = sum(1 for v in eff_tmp if v != "선택" and _gender_of(v) == def_g)
+                                    res = solo_reserve_by_court.get(int(cc))
+                                    if res and (res not in eff_tmp):
+                                        pref_positions = [0, 2, 1, 3] if def_g == "남" else [1, 3, 0, 2]
+
+                                        def _rank_key(kx):
+                                            ii = pos_map.get(kx, 99)
+                                            try:
+                                                return pref_positions.index(ii)
+                                            except Exception:
+                                                return 99
+
+                                        kk0 = min(list(empty_keys), key=_rank_key)
+                                        i0 = pos_map.get(kk0, None)
+                                        if i0 is None:
+                                            ok = False
+                                            break
+                                        if not _take(res):
+                                            ok = False
+                                            break
+                                        plan[kk0] = res
+                                        auto_keys.add(kk0)
+                                        eff_tmp[i0] = res
+                                        try:
+                                            empty_keys.remove(kk0)
+                                        except Exception:
+                                            pass
+                                        if res in men:
+                                            men.remove(res)
+                                        if res in women:
+                                            women.remove(res)
+
+                                # 비-잡복 코트에서는 예약된 사람을 다른 코트에서 뽑지 않게 차단
+                                if blocked:
+                                    men = [p for p in men if p not in blocked]
+                                    women = [p for p in women if p not in blocked]
+
+                                # 팀(0,1) / (2,3) 기준으로 순차 채우기
+                                for kk in list(empty_keys):
                                     i = pos_map.get(kk, None)
                                     if i is None:
-                                        ok = False; break
+                                        ok = False
+                                        break
 
                                     mate_i = (i - 1) if (i % 2 == 1) else (i + 1)
                                     mate = eff_tmp[mate_i] if 0 <= mate_i < 4 else "선택"
 
+                                    # 잡복 코트에서는 (def_g) 성별이 이미 1명 확보되면 추가로 뽑지 않음
+                                    if is_solo_court and solo_def_gender:
+                                        def_g = solo_def_gender
+                                        cur_def_cnt = sum(1 for v in eff_tmp if v != "선택" and _gender_of(v) == def_g)
+                                        if cur_def_cnt >= 1:
+                                            if def_g == "남":
+                                                men = []
+                                            else:
+                                                women = []
+
                                     if mate != "선택":
                                         need_g = "여" if _gender_of(mate) == "남" else "남"
                                         cand = men if need_g == "남" else women
-                                        pick = _fair_pick(cand, counts, rng, ref_ntrp=_ntrp_of(mate), ntrp_on=bool(manual_fill_ntrp))
+                                        pick = _fair_pick(
+                                            cand,
+                                            counts,
+                                            rng,
+                                            ref_ntrp=_ntrp_of(mate),
+                                            ntrp_on=bool(manual_fill_ntrp),
+                                        )
                                         if pick is None:
-                                            pick = _fair_pick(men + women, counts, rng, ref_ntrp=_ntrp_of(mate), ntrp_on=bool(manual_fill_ntrp))
+                                            rest_pool = men + women
+                                            if blocked:
+                                                rest_pool = [p for p in rest_pool if p not in blocked]
+                                            pick = _fair_pick(
+                                                rest_pool,
+                                                counts,
+                                                rng,
+                                                ref_ntrp=_ntrp_of(mate),
+                                                ntrp_on=bool(manual_fill_ntrp),
+                                            )
                                     else:
+                                        # 기본은 (0,2)=남 / (1,3)=여
                                         prefer_g = "남" if i in (0, 2) else "여"
+
+                                        # 잡복 코트에서는 부족 성별(def_g)을 과하게 더 뽑지 않도록 반대로 우선
+                                        if is_solo_court and solo_def_gender:
+                                            def_g = solo_def_gender
+                                            cur_def_cnt = sum(1 for v in eff_tmp if v != "선택" and _gender_of(v) == def_g)
+                                            if cur_def_cnt >= 1 and prefer_g == def_g:
+                                                prefer_g = "여" if def_g == "남" else "남"
+
                                         primary = men if prefer_g == "남" else women
                                         secondary = women if prefer_g == "남" else men
-                                        pick = _fair_pick(primary, counts, rng, ntrp_on=bool(manual_fill_ntrp))                                             or _fair_pick(secondary, counts, rng, ntrp_on=bool(manual_fill_ntrp))                                             or _fair_pick(men + women, counts, rng, ntrp_on=bool(manual_fill_ntrp))
+                                        rest_pool = men + women
+                                        if blocked:
+                                            primary = [p for p in primary if p not in blocked]
+                                            secondary = [p for p in secondary if p not in blocked]
+                                            rest_pool = [p for p in rest_pool if p not in blocked]
+
+                                        pick = (
+                                            _fair_pick(primary, counts, rng, ntrp_on=bool(manual_fill_ntrp))
+                                            or _fair_pick(secondary, counts, rng, ntrp_on=bool(manual_fill_ntrp))
+                                            or _fair_pick(rest_pool, counts, rng, ntrp_on=bool(manual_fill_ntrp))
+                                        )
 
                                     if pick is None:
-                                        ok = False; break
+                                        ok = False
+                                        break
 
                                     if not _take(pick):
-                                        ok = False; break
+                                        ok = False
+                                        break
 
                                     plan[kk] = pick
                                     auto_keys.add(kk)
@@ -7461,6 +7640,13 @@ def render_tab_today_session(tab):
 
                                 if not ok:
                                     break
+
+                                # ✅ 잡복 코트면 해당 성별 1명인 선수를 기록(라운드별로 최대 중복 방지)
+                                if is_solo_court and solo_def_gender:
+                                    def_g = solo_def_gender
+                                    solo_players = [v for v in eff_tmp if v != "선택" and _gender_of(v) == def_g]
+                                    if len(solo_players) == 1:
+                                        japbok_counter[solo_players[0]] += 1
 
                             else:
                                 # 동성/남성/여성/랜덤
