@@ -9633,6 +9633,8 @@ with tab3:
 
                     _first_idx_int = None
 
+
+                    _prev_round_no = None
                     for local_no, (idx, gtype, t1, t2, court) in enumerate(game_list, start=1):
                         # (안전) idx 정규화
                         try:
@@ -9643,16 +9645,20 @@ with tab3:
                         if _first_idx_int is None:
                             _first_idx_int = idx_int
 
-                        # idx 기반 라운드/경계선(코트 삭제 후에도 뒤 라운드가 앞으로 당겨지지 않음)
+                        # idx 기반 라운드 번호(코트 삭제 후에도 뒤 라운드가 앞으로 당겨지지 않음)
                         round_no = ((idx_int - 1) // int(court_count_fixed)) + 1 if int(court_count_fixed) > 0 else 1
-                        _is_new_round = ((idx_int - 1) % int(court_count_fixed) == 0) if int(court_count_fixed) > 0 else (local_no == 1)
 
-                        # ✅ 라운드(=게임) 경계선: 새 라운드 시작에서만 표시(첫 항목 제외)
-                        if _is_new_round and (idx_int != _first_idx_int):
+                        # ✅ 라운드(=게임) 시작 판정:
+                        #   - idx%코트수 로만 판정하면 "코트1이 삭제된 라운드"에서 코트2가 라운드 시작으로 인식되지 않아
+                        #     경계선이 깨질 수 있음 → "표시되는 항목 기준으로 round_no 변화"로 판정
+                        _is_new_round = (_prev_round_no is None) or (round_no != _prev_round_no)
+
+                        # ✅ 라운드(=게임) 경계선: 이전에 표시된 라운드가 있을 때만(첫 항목 제외)
+                        if (_prev_round_no is not None) and _is_new_round:
                             st.markdown("<div class='msc-round-divider'></div>", unsafe_allow_html=True)
 
                         # ✅ 같은 라운드(코트들) 사이에는 구분선 제거: 새 라운드 시작에서만 선 표시
-                        _show_sep = _is_new_round
+                        _show_sep = (_prev_round_no is not None) and _is_new_round
                         _sep_css = "border-top:1px solid #e5e7eb;" if _show_sep else "border-top:none;"
                         _top_css = "margin-top:0.6rem; padding-top:0.4rem;" if _show_sep else "margin-top:0.25rem; padding-top:0.15rem;"
 
@@ -9664,6 +9670,10 @@ with tab3:
                             f"</div>",
                             unsafe_allow_html=True,
                         )
+
+                        # ✅ 다음 항목의 라운드 경계 계산을 위해 현재 라운드 기록
+                        _prev_round_no = round_no
+
                         # 저장돼 있던 값
                         res = results.get(str(idx)) or results.get(idx) or {}
                         prev_s1 = res.get("t1", 0)
