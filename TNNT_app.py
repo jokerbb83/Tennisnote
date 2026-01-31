@@ -10620,10 +10620,10 @@ with tab3:
 
                                             with col_d2:
                                                 st.markdown('<div class="main-danger-btn">', unsafe_allow_html=True)
-                                                req_del_court = st.button(
-                                                    "🗑 이 코트 게임 전체 삭제",
+                                                req_del_roundall = st.button(
+                                                    "🗑 이 게임번호 전체 삭제",
                                                     use_container_width=True,
-                                                    key=f"del_court_btn_{sel_date}",
+                                                    key=f"del_roundall_btn_{sel_date}",
                                                     disabled=_locked_day,
                                                 )
                                                 st.markdown("</div>", unsafe_allow_html=True)
@@ -10640,18 +10640,14 @@ with tab3:
                                                     "round": int(del_round),
                                                     "court": int(del_court),
                                                 }
-                                            if req_del_court:
-                                                # 코트 전체 삭제는 '하루 전체에서 해당 코트'를 대상으로 함
-                                                _all_idxs = []
-                                                for i, (_, _, _, c) in enumerate(_sched_now, start=1):
-                                                    if _court_to_int(c) == int(del_court):
-                                                        _all_idxs.append(int(i))
+                                            if req_del_roundall:
+                                                # ✅ 게임번호(라운드) 전체 삭제: 선택된 게임 번호에 포함된 코트(들) 전체를 삭제
                                                 st.session_state["_pending_delete_game"] = {
                                                     "date": sel_date,
-                                                    "mode": "court",
-                                                    "idxs": [int(x) for x in _all_idxs],
+                                                    "mode": "round",
+                                                    "idxs": [int(x) for x in round_idxs],
                                                     "round": int(del_round),
-                                                    "court": int(del_court),
+                                                    "court": None,
                                                 }
 
                                             pending_del = st.session_state.get("_pending_delete_game")
@@ -10665,7 +10661,11 @@ with tab3:
                                                 msg = (
                                                     f"게임 {_round} · 코트 {_court} (전체 {_idxs2[0] if _idxs2 else '?'}번)를 삭제할까요?"
                                                     if _mode == "single"
-                                                    else f"코트 {_court}의 게임 {len(_idxs2)}개를 모두 삭제할까요?"
+                                                    else (
+                                                        f"게임 {_round}의 경기 {len(_idxs2)}개(코트 전체)를 모두 삭제할까요?"
+                                                        if _mode == "round"
+                                                        else f"코트 {_court}의 게임 {len(_idxs2)}개를 모두 삭제할까요?"
+                                                    )
                                                 )
                                                 st.warning(msg)
 
