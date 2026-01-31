@@ -9609,18 +9609,13 @@ with tab3:
                     _round_court_count = len(_court_set) if _court_set else 3
 
                     # 실제 게임들
+                    _msc_round_no = 1
+                    _msc_seen_courts = set()
+
                     for local_no, (idx, gtype, t1, t2, court) in enumerate(game_list, start=1):
 
-                        # ✅ 3코트면: (게임1-코트1, 게임1-코트2, 게임1-코트3) → (게임2-코트1 ...)
-                        round_no = ((local_no - 1) // int(_round_court_count)) + 1
-                        court_no_in_round = ((local_no - 1) % int(_round_court_count)) + 1
-
-                        # ✅ 라운드(=게임) 경계선: 코트 수 단위로 한 번씩
-                        if (court_no_in_round == 1) and (local_no != 1):
-                            st.markdown("<div class='msc-round-divider'></div>", unsafe_allow_html=True)
-
-
-                        # ✅ 같은 라운드(코트1/2/...) 사이에는 경계선(구분선) 제거: 코트 1에서만 선 표시
+                                                # ✅ 라운드(=게임) 번호/경계선 계산(삭제/순서변경 후에도 안정적으로)
+                        #   - 같은 라운드에서는 코트가 중복되지 않으므로, 이미 나온 코트가 다시 나오면 다음 라운드로 간주
                         try:
                             _court_s = str(court).strip() if court is not None else ""
                             _digits = "".join([ch for ch in _court_s if ch.isdigit()])
@@ -9628,12 +9623,32 @@ with tab3:
                         except Exception:
                             _court_i = None
 
-                        _show_sep = True
-                        if _court_i is not None:
-                            _show_sep = (_court_i == 1)
+                        _is_new_round = False
+                        if local_no == 1:
+                            _is_new_round = True
+                            _msc_round_no = 1
+                            _msc_seen_courts = set()
                         else:
-                            _show_sep = (court_no_in_round == 1)
+                            if (_court_i is not None) and (_court_i in _msc_seen_courts):
+                                _msc_round_no += 1
+                                _msc_seen_courts = set()
+                                _is_new_round = True
+                            elif (_court_i is None) and int(_round_court_count) > 0 and ((local_no - 1) % int(_round_court_count) == 0):
+                                # fallback: 코트 번호를 못 읽는 경우에만 고정 코트 수로 라운드 계산
+                                _msc_round_no += 1
+                                _is_new_round = True
 
+                        if _court_i is not None:
+                            _msc_seen_courts.add(_court_i)
+
+                        round_no = _msc_round_no
+
+                        # ✅ 라운드(=게임) 경계선: 새 라운드 시작에서만 표시(첫 라운드 제외)
+                        if _is_new_round and local_no != 1:
+                            st.markdown("<div class='msc-round-divider'></div>", unsafe_allow_html=True)
+
+                        # ✅ 같은 라운드(코트들) 사이에는 구분선 제거: 새 라운드 시작에서만 선 표시
+                        _show_sep = _is_new_round
                         _sep_css = "border-top:1px solid #e5e7eb;" if _show_sep else "border-top:none;"
                         _top_css = "margin-top:0.6rem; padding-top:0.4rem;" if _show_sep else "margin-top:0.25rem; padding-top:0.15rem;"
 
