@@ -4278,8 +4278,8 @@ st.markdown(MOBILE_SCORE_ROW_CSS, unsafe_allow_html=True)
 
 
 if IS_OBSERVER:
-    tab3, tab5, tab4, tab6 = st.tabs(
-        ["📋 경기 기록 / 통계", "📆 월별 통계", "👤 개인별 통계", "⚙️ 설정"]
+    tab3, tab5, tab4, tab1, tab6 = st.tabs(
+        ["📋 경기 기록 / 통계", "📆 월별 통계", "👤 개인별 통계", "🧾 선수 정보 관리", "⚙️ 설정"]
     )
 else:
     tab3, tab5, tab4, tab1, tab2, tab6 = st.tabs(
@@ -4287,10 +4287,137 @@ else:
     )
 
 
-def render_tab_player_manage(tab):
+def render_tab_player_manage(tab, read_only: bool = False):
     global roster
     with tab:
         st.header("🧾 선수 정보 관리")
+
+
+        # ✅ 옵저버 모드: 선수 목록/수정 UI는 숨기고, 선수 통계 요약만 표시
+        if read_only:
+                # -----------------------------------------------------
+            # 2) 선수 통계 요약 + 분포 다이어그램
+            # -----------------------------------------------------
+            if roster:
+                st.markdown("---")
+                st.subheader("📊 선수 통계 요약")
+
+                total_players = len(roster)
+
+                # 카운트들 계산
+                age_counter = Counter(p.get("age_group", "비밀") for p in roster)
+                gender_counter = Counter(p.get("gender", "남") for p in roster)
+                hand_counter = Counter(p.get("hand", "오른손") for p in roster)
+                racket_counter = Counter(p.get("racket", "기타") for p in roster)
+                ntrp_counter = Counter(
+                    "모름" if p.get("ntrp") is None else f"{p.get('ntrp'):.1f}"
+                    for p in roster
+                )
+
+                # MBTI
+                mbti_counter_raw = Counter(p.get("mbti", "모름") for p in roster)
+                # "모름" 은 통계에서 제외
+                mbti_counter = Counter({
+                    k: v for k, v in mbti_counter_raw.items()
+                    if k not in (None, "", "모름")
+                })
+
+
+                # 텍스트 요약
+                st.markdown(f"- 전체 인원: **{total_players}명**")
+
+                # 나이대 예: 10대 2명 / 20대 3명 / ...
+                age_text = " / ".join(f"{k} {v}명" for k, v in age_counter.items())
+                st.markdown(f"- 나이대: {age_text}")
+
+                # 성별
+                st.markdown(
+                    f"- 성별: 남자 {gender_counter.get('남', 0)}명, "
+                    f"여자 {gender_counter.get('여', 0)}명"
+                )
+
+                # 주손
+                st.markdown(
+                    f"- 주손: 오른손 {hand_counter.get('오른손', 0)}명, "
+                    f"왼손 {hand_counter.get('왼손', 0)}명"
+                )
+
+                # 라켓 브랜드
+                racket_text = " / ".join(f"{k} {v}명" for k, v in racket_counter.items())
+                st.markdown(f"- 라켓 브랜드: {racket_text}")
+
+                # NTRP
+                ntrp_text = " / ".join(f"NTRP {k}: {v}명" for k, v in ntrp_counter.items())
+                st.markdown(f"- NTRP 분포: {ntrp_text}")
+
+                if mbti_counter:
+                    mbti_text = " / ".join(f"{k} {v}명" for k, v in mbti_counter.items())
+                else:
+                    mbti_text = "집계할 MBTI가 없습니다."
+                st.markdown(f"- MBTI 분포: {mbti_text}")
+
+
+                with st.expander("📈 항목별 분포 다이어그램 (각 항목 100% 기준) 🔽 아래로 내려보세요.", expanded=False):
+
+                    # 🔧 필터 / 옵션 (슬라이더 + 어떤 항목 볼지 선택)
+                    with st.expander("필터 / 옵션 열기", expanded=False):
+                        min_count = st.slider(
+                            "표시할 최소 인원 수",
+                            min_value=0,
+                            max_value=total_players,
+                            value=1,
+                            help="이 값보다 적은 인원인 항목은 숨겨집니다.",
+                        )
+
+                        section_options = ["나이대", "성별", "주손", "라켓", "NTRP", "MBTI"]
+                        selected_sections = st.multiselect(
+                            "보고 싶은 항목 선택",
+                            section_options,
+                            default=section_options,
+                        )
+
+                    # 어떤 분포를 쓸지 묶어두기
+                    dist_items = []
+                    if "나이대" in selected_sections:
+                        dist_items.append(("나이대별 인원 분포", age_counter))
+                    if "성별" in selected_sections:
+                        dist_items.append(("성별 인원 분포", gender_counter))
+                    if "주손" in selected_sections:
+                        dist_items.append(("주손(오른손/왼손) 분포", hand_counter))
+                    if "라켓" in selected_sections:
+                        dist_items.append(("라켓 브랜드별 분포", racket_counter))
+                    if "NTRP" in selected_sections:
+                        dist_items.append(("NTRP 레벨별 분포", ntrp_counter))
+                    if "MBTI" in selected_sections:
+                        dist_items.append(("MBTI 분포", mbti_counter))
+
+
+                    # 📱 모바일 모드면 1열, PC면 2열씩 배치
+                    if mobile_mode:
+                        for title, counter in dist_items:
+                            render_distribution_section(
+                                title, counter, total_players, min_count
+                            )
+                            st.markdown("---")
+                    else:
+                        for i in range(0, len(dist_items), 2):
+                            col1, col2 = st.columns(2)
+                            title1, counter1 = dist_items[i]
+                            with col1:
+                                render_distribution_section(
+                                    title1, counter1, total_players, min_count
+                                )
+
+                            if i + 1 < len(dist_items):
+                                title2, counter2 = dist_items[i + 1]
+                                with col2:
+                                    render_distribution_section(
+                                        title2, counter2, total_players, min_count
+                                    )
+
+
+        
+            return
 
         st.subheader("등록된 선수 목록")
         if roster:
@@ -5035,9 +5162,7 @@ def render_tab_player_manage(tab):
 
 
 
-if not IS_OBSERVER:
-    render_tab_player_manage(tab1)
-
+render_tab_player_manage(tab1, read_only=IS_OBSERVER)
 def render_tab_today_session(tab):
     with tab:
         section_card("오늘 경기 세션", "🎾")
