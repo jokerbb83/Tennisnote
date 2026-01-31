@@ -4357,7 +4357,6 @@ def render_tab_player_manage(tab, read_only: bool = False):
                 st.markdown(f"- MBTI 분포: {mbti_text}")
 
 
-                with st.expander("📈 항목별 분포 다이어그램 (각 항목 100% 기준) 🔽 아래로 내려보세요.", expanded=False):
                 with st.expander(
                     "📈 항목별 분포 다이어그램 (각 항목 100% 기준) 🔽 아래로 내려보세요.",
                     expanded=True,
@@ -12383,4 +12382,5 @@ with tab6:
         else:
             st.info("스코어보드 앱 URL을 secrets에 `SCOREBOARD_URL`로 넣어주면 버튼이 자동으로 활성화됩니다.")
             st.code(f"?{qs}")
+
 
