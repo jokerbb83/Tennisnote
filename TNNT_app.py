@@ -1443,6 +1443,9 @@ def detect_score_warnings(day_data):
     warnings = []
 
     for idx, (gtype, t1, t2, court) in enumerate(schedule, start=1):
+        # ✅ 삭제 슬롯/빈 경기는 경고 검사에서 제외
+        if str(gtype) == "삭제" or (not t1) or (not t2):
+            continue
         res = results.get(str(idx)) or results.get(idx) or {}
         s1 = res.get("t1")
         s2 = res.get("t2")
@@ -1512,6 +1515,9 @@ def build_daily_report(sel_date, day_data):
 
 
     for idx, (gtype, t1, t2, court) in enumerate(schedule, start=1):
+        # ✅ 삭제 슬롯/빈 경기는 통계에서 제외
+        if str(gtype) == "삭제" or (not t1) or (not t2):
+            continue
         res = results.get(str(idx)) or results.get(idx) or {}
         s1 = res.get("t1")
         s2 = res.get("t2")
@@ -2881,6 +2887,9 @@ def iter_games(sessions, include_special=True):
         court_type = day_data.get("court_type", COURT_TYPES[0])
 
         for idx, (gtype, t1, t2, court) in enumerate(schedule, start=1):
+            # ✅ 삭제 슬롯/빈 경기는 통계 generator에서 제외
+            if str(gtype) == "삭제" or (not t1) or (not t2):
+                continue
             res = results.get(str(idx)) or results.get(idx) or {}
             yield d, idx, {
                 "type": gtype,
@@ -8504,6 +8513,9 @@ def render_tab_today_session(tab):
 
                 day_data.update({
                     "schedule": schedule,
+                    # ✅ 삭제/편집 후에도 '게임(라운드) 경계선' 계산이 흔들리지 않도록,
+                    #    생성 시점의 코트 개수를 함께 저장해 둔다.
+                    "court_count": int(court_count) if str(court_count).isdigit() else int(day_data.get("court_count") or 3),
                     "court_type": st.session_state.get("today_court_type", COURT_TYPES[0]),
                     "special_match": bool(st.session_state.get("special_match", False)),
                     "groups_snapshot": groups_snapshot,
@@ -8652,6 +8664,9 @@ with tab3:
                 per_player_other = defaultdict(list)
 
                 for idx, (gtype, t1, t2, court) in enumerate(schedule, start=1):
+                    # ✅ 삭제 슬롯/빈 경기는 요약 테이블에서 제외
+                    if str(gtype) == "삭제" or (not t1) or (not t2):
+                        continue
                     res = results.get(str(idx)) or results.get(idx) or {}
                     s1, s2 = res.get("t1"), res.get("t2")
 
@@ -9350,9 +9365,11 @@ with tab3:
 
 
             # 복식 게임 포함 여부 체크 (단식이면 안내문 숨김)
+            # (삭제 슬롯 제외) 복식 게임이 있을 때만 사이드 안내 노출
             show_side_notice = any(
-                len(t1) == 2 and len(t2) == 2
+                (str(gtype) != "삭제") and (len(t1) == 2 and len(t2) == 2)
                 for (gtype, t1, t2, court) in schedule
+                if isinstance((gtype, t1, t2, court), (list, tuple))
             )
 
 
@@ -9387,6 +9404,9 @@ with tab3:
                 day_groups_snapshot = day_data.get("groups_snapshot")
 
                 for idx, (gtype, t1, t2, court) in enumerate(schedule, start=1):
+                    # ✅ 삭제 슬롯/비정상 슬롯은 스코어 입력 목록에서 제외
+                    if str(gtype) == "삭제" or (not t1) or (not t2):
+                        continue
                     all_players = list(t1) + list(t2)
 
                     grp_flag = classify_game_group(
@@ -9588,63 +9608,47 @@ with tab3:
                     # ✅ 여기서 한 번 정의해줘야 해
                     score_options_local = SCORE_OPTIONS
 
-                    # ✅ 라운드(=게임번호) 계산을 위한 '코트 수' 추정
-                    def _extract_court_int(_c):
-                        try:
-                            _s = str(_c).strip() if _c is not None else ""
-                            _d = "".join([ch for ch in _s if ch.isdigit()])
-                            return int(_d) if _d else None
-                        except Exception:
-                            return None
+                    # ✅ 라운드(=게임번호) 계산: "전체 게임 인덱스(idx)" 기준으로 고정
+                    #   - 삭제 시에도 리스트에서 제거하지 않고 '삭제 슬롯'으로 남겨두므로(idx가 유지됨)
+                    #   - 따라서 (idx-1)//court_count 로 라운드를 계산하면 뒤 라운드가 앞으로 당겨지지 않음
+                    court_count_fixed = day_data.get("court_count")
+                    try:
+                        court_count_fixed = int(court_count_fixed)
+                    except Exception:
+                        court_count_fixed = 0
+                    if court_count_fixed <= 0:
+                        # (구 데이터 호환) 코트 번호에서 최대값으로 추정
+                        _cis = []
+                        for _it in (game_list or []):
+                            try:
+                                _c = _it[4]
+                                _s = str(_c).strip() if _c is not None else ""
+                                _d = "".join([ch for ch in _s if ch.isdigit()])
+                                _ci = int(_d) if _d else None
+                                if _ci is not None:
+                                    _cis.append(_ci)
+                            except Exception:
+                                pass
+                        court_count_fixed = max(_cis) if _cis else 3
 
-                    _court_ints = []
-                    for _it in game_list:
-                        try:
-                            _cc = _extract_court_int(_it[4])
-                            if _cc is not None:
-                                _court_ints.append(_cc)
-                        except Exception:
-                            pass
-                    _court_set = sorted(set(_court_ints))
-                    _round_court_count = len(_court_set) if _court_set else 3
-
-                    # 실제 게임들
-                    _msc_round_no = 1
-                    _msc_seen_courts = set()
+                    _first_idx_int = None
 
                     for local_no, (idx, gtype, t1, t2, court) in enumerate(game_list, start=1):
-
-                                                # ✅ 라운드(=게임) 번호/경계선 계산(삭제/순서변경 후에도 안정적으로)
-                        #   - 같은 라운드에서는 코트가 중복되지 않으므로, 이미 나온 코트가 다시 나오면 다음 라운드로 간주
+                        # (안전) idx 정규화
                         try:
-                            _court_s = str(court).strip() if court is not None else ""
-                            _digits = "".join([ch for ch in _court_s if ch.isdigit()])
-                            _court_i = int(_digits) if _digits else None
+                            idx_int = int(idx)
                         except Exception:
-                            _court_i = None
+                            idx_int = local_no
 
-                        _is_new_round = False
-                        if local_no == 1:
-                            _is_new_round = True
-                            _msc_round_no = 1
-                            _msc_seen_courts = set()
-                        else:
-                            if (_court_i is not None) and (_court_i in _msc_seen_courts):
-                                _msc_round_no += 1
-                                _msc_seen_courts = set()
-                                _is_new_round = True
-                            elif (_court_i is None) and int(_round_court_count) > 0 and ((local_no - 1) % int(_round_court_count) == 0):
-                                # fallback: 코트 번호를 못 읽는 경우에만 고정 코트 수로 라운드 계산
-                                _msc_round_no += 1
-                                _is_new_round = True
+                        if _first_idx_int is None:
+                            _first_idx_int = idx_int
 
-                        if _court_i is not None:
-                            _msc_seen_courts.add(_court_i)
+                        # idx 기반 라운드/경계선(코트 삭제 후에도 뒤 라운드가 앞으로 당겨지지 않음)
+                        round_no = ((idx_int - 1) // int(court_count_fixed)) + 1 if int(court_count_fixed) > 0 else 1
+                        _is_new_round = ((idx_int - 1) % int(court_count_fixed) == 0) if int(court_count_fixed) > 0 else (local_no == 1)
 
-                        round_no = _msc_round_no
-
-                        # ✅ 라운드(=게임) 경계선: 새 라운드 시작에서만 표시(첫 라운드 제외)
-                        if _is_new_round and local_no != 1:
+                        # ✅ 라운드(=게임) 경계선: 새 라운드 시작에서만 표시(첫 항목 제외)
+                        if _is_new_round and (idx_int != _first_idx_int):
                             st.markdown("<div class='msc-round-divider'></div>", unsafe_allow_html=True)
 
                         # ✅ 같은 라운드(코트들) 사이에는 구분선 제거: 새 라운드 시작에서만 선 표시
@@ -10716,30 +10720,23 @@ with tab3:
                                                         del_set0 = {int(i) - 1 for i in _idxs2 if str(i).isdigit()}
                                                         del_set0 = {i for i in del_set0 if 0 <= i < n_games}
 
-                                                        new_schedule = [g for i, g in enumerate(_sched_now) if i not in del_set0]
-                                                        new_res_list = [r for i, r in enumerate(old_res_list) if i not in del_set0]
+                                                        # ✅ 중요: 삭제 시 뒤의 코트를 앞으로 끌어올리지 않기 위해
+                                                        #   '리스트에서 제거(pop)'가 아니라 '슬롯을 삭제 표시'로 처리한다.
+                                                        #   이렇게 하면 (예) 게임2 코트2를 지워도 게임3 코트2가 게임2로 올라오지 않는다.
+                                                        new_schedule = list(_sched_now)
+                                                        new_res_list = list(old_res_list)
+                                                        for i0 in sorted(del_set0):
+                                                            try:
+                                                                _old_item = _sched_now[i0]
+                                                                _old_court = _old_item[3] if isinstance(_old_item, (list, tuple)) and len(_old_item) >= 4 else None
+                                                            except Exception:
+                                                                _old_court = None
+                                                            # '삭제' 슬롯(언팩 안전 + 인덱스 보존)
+                                                            new_schedule[i0] = ("삭제", [], [], _old_court)
+                                                            new_res_list[i0] = {}
 
-                                                        # ✅ (추가) 라운드 단위로 코트 번호 오름차순 정렬(경계선/표시 안정화)
-                                                        def _normalize_by_round(schedule_list, res_list):
-                                                            if not schedule_list:
-                                                                return schedule_list, res_list
-                                                            _cis = [_court_to_int(c) for (_, _, _, c) in schedule_list]
-                                                            _cis = [x for x in _cis if isinstance(x, int) and x > 0]
-                                                            _rcc = max(_cis) if _cis else 1
-                                                            out_s, out_r = [], []
-                                                            for base in range(0, len(schedule_list), int(_rcc)):
-                                                                chunk_s = schedule_list[base:base + int(_rcc)]
-                                                                chunk_r = res_list[base:base + int(_rcc)]
-                                                                pairs = list(zip(chunk_s, chunk_r))
-                                                                pairs.sort(key=lambda pr: (_court_to_int(pr[0][3]) or 10**9))
-                                                                out_s.extend([p[0] for p in pairs])
-                                                                out_r.extend([p[1] for p in pairs])
-                                                            return out_s, out_r
-
-                                                        new_schedule, new_res_list = _normalize_by_round(new_schedule, new_res_list)
-
-                                                        new_n = len(new_schedule)
-                                                        new_results = {str(i + 1): (new_res_list[i] or {}) for i in range(new_n)}
+                                                        # 결과는 전체 인덱스를 유지(삭제된 슬롯은 빈 dict)
+                                                        new_results = {str(i + 1): (new_res_list[i] or {}) for i in range(n_games)}
 
                                                         day_data["schedule"] = new_schedule
                                                         day_data["results"] = new_results
