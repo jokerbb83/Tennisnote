@@ -8603,12 +8603,12 @@ def render_tab_today_session(tab):
                 _render_preview_rows(schedule, int(court_count))
 
             
-st.markdown(f'<div id="{capture_id_today}__end"></div>', unsafe_allow_html=True)
+            st.markdown(f'<div id="{capture_id_today}__end"></div>', unsafe_allow_html=True)
 
-# ✅ 대진표 JPG 캡쳐 버튼(미리보기 하단 / 인당 경기수 위)
-_club_disp_name = CLUB_NAME()
-_capture_title_today = f"{save_date_str} {_club_disp_name} 게임 대진"
-components.html(
+            # ✅ 대진표 JPG 캡쳐 버튼(미리보기 하단 / 인당 경기수 위)
+            _club_disp_name = CLUB_NAME()
+            _capture_title_today = f"{save_date_str} {_club_disp_name} 게임 대진"
+            components.html(
     f"""
     <div style="display:flex; gap:12px; margin-top:14px; align-items:center;">
       <button id="{capture_id_today}__save"
@@ -8759,7 +8759,7 @@ components.html(
     height=90,
 )
 
-st.markdown("### 👤 인당 경기수")
+            st.markdown("### 👤 인당 경기수")
             cnt = count_player_games(schedule)
 
             # ✅ 공평성 안내: 인당 경기수 차이는 최대 1게임이 되도록 시도합니다.
@@ -11595,7 +11595,7 @@ with tab4:
                     unsafe_allow_html=True,
                 )
 
-st.write(f"- 경기수: {rec['G']}")
+                st.write(f"- 경기수: {rec['G']}")
                 st.write(f"- 승 / 무 / 패: {rec['W']} / {rec['D']} / {rec['L']}")
                 st.write(f"- 승률: {win_rate:.1f}%")
                 st.write(f"- 점수(승=3, 무=1, 패=0): {rec['points']}")
@@ -12503,24 +12503,24 @@ with tab5:
 
 
 
-# ☮️ 무승부왕 (공동우승 허용)
-draw_counts = []
-for name, r in recs_all.items():
-    if is_guest_name(name, roster):
-        continue
-    d = int(r.get("D", 0) or 0)
-    draw_counts.append((name, d))
+                # ☮️ 무승부왕 (공동우승 허용)
+                draw_counts = []
+                for name, r in recs_all.items():
+                    if is_guest_name(name, roster):
+                        continue
+                    d = int(r.get("D", 0) or 0)
+                    draw_counts.append((name, d))
 
-if draw_counts:
-    best_d = max(d for _, d in draw_counts)
-    if best_d > 0:
-        winners = [n for (n, d) in draw_counts if d == best_d]
-        names = ", ".join(sorted(winners))
-        draw_line = f"{names} (무승부 {best_d}회)"
-    else:
-        draw_line = "데이터 부족"
-else:
-    draw_line = "데이터 부족"
+                if draw_counts:
+                    best_d = max(d for _, d in draw_counts)
+                    if best_d > 0:
+                        winners = [n for (n, d) in draw_counts if d == best_d]
+                        names = ", ".join(sorted(winners))
+                        draw_line = f"{names} (무승부 {best_d}회)"
+                    else:
+                        draw_line = "데이터 부족"
+                else:
+                    draw_line = "데이터 부족"
 
                 # 👑 출석왕 — recs(순위표)와 동일 기준(출석 날짜 set)
                 attendance_count = {
