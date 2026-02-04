@@ -12657,7 +12657,7 @@ else:
                             <li>🤝 우정왕&nbsp;:&nbsp;{partner_line}</li>
                             <li>👑 출석왕&nbsp;:&nbsp;{attendance_line}</li>
                             <li>🔥 연승왕&nbsp;:&nbsp;{streak_line}</li>
-                            <li>☮️ 무승부왕&nbsp;:&nbsp;{draw_line}</li>
+                            <li>☮️ 평화주의자&nbsp;:&nbsp;{draw_line}</li>
                             <li>🥖 제빵왕&nbsp;:&nbsp;{baker_line}</li>
                         </ul>
                     </div>
