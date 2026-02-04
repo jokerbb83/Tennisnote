@@ -4357,10 +4357,8 @@ def render_tab_player_manage(tab, read_only: bool = False):
                 st.markdown(f"- MBTI 분포: {mbti_text}")
 
 
-                with st.expander(
-                    "📈 항목별 분포 다이어그램 (각 항목 100% 기준) 🔽 아래로 내려보세요.",
-                    expanded=True,
-                ):
+                with st.expander("📈 항목별 분포 다이어그램 (각 항목 100% 기준) 🔽 아래로 내려보세요.", expanded=False):
+
                     # 🔧 필터 / 옵션 (슬라이더 + 어떤 항목 볼지 선택)
                     with st.expander("필터 / 옵션 열기", expanded=False):
                         min_count = st.slider(
@@ -8528,6 +8526,11 @@ def render_tab_today_session(tab):
         # =========================================================
         if schedule:
             st.markdown("### ✅ 오늘 대진표 미리보기")
+            # ✅ [캡처] 오늘 대진표 미리보기 범위 마커(start/end)
+            safe_date_key2 = re.sub(r"[^0-9a-zA-Z_]+", "_", str(save_date_str))
+            capture_id_today = f"tab2_today_fixture_capture_{safe_date_key2}"
+            st.markdown(f'<div id="{capture_id_today}__start"></div>', unsafe_allow_html=True)
+
 
 
             # ✅ 게임(라운드) 단위 경계선 (코트 사이 X / 게임 사이 O)
@@ -8599,7 +8602,164 @@ def render_tab_today_session(tab):
             else:
                 _render_preview_rows(schedule, int(court_count))
 
-            st.markdown("### 👤 인당 경기수")
+            
+st.markdown(f'<div id="{capture_id_today}__end"></div>', unsafe_allow_html=True)
+
+# ✅ 대진표 JPG 캡쳐 버튼(미리보기 하단 / 인당 경기수 위)
+_club_disp_name = CLUB_NAME()
+_capture_title_today = f"{save_date_str} {_club_disp_name} 게임 대진"
+components.html(
+    f"""
+    <div style="display:flex; gap:12px; margin-top:14px; align-items:center;">
+      <button id="{capture_id_today}__save"
+        style="flex:1; padding:10px 12px; border-radius:10px; border:1px solid rgba(0,0,0,0.15);
+               background:white; cursor:pointer; font-weight:800;">
+        대진표 JPG로 저장
+      </button>
+      <span id="{capture_id_today}__msg" style="font-size:12px; opacity:0.7;"></span>
+    </div>
+
+    <script>
+    (function() {{
+      const capId = {json.dumps(capture_id_today)};
+      const fileName = "대진표_" 
+            + {json.dumps(str(save_date_str))}.replace(/[^0-9a-zA-Z_\-]+/g, "_")
+            + "_" 
+            + {json.dumps(str(_club_disp_name))}.replace(/[^0-9a-zA-Z_\-]+/g, "_")
+            + ".jpg";
+      const titleText = {json.dumps(_capture_title_today)};
+      const p = window.parent;
+      const pdoc = p.document;
+
+      const msgEl = document.getElementById(capId + "__msg");
+      const btnSave = document.getElementById(capId + "__save");
+
+      function setMsg(m) {{
+        if (msgEl) msgEl.textContent = m;
+      }}
+
+      function ensureHtml2Canvas() {{
+        return new Promise((resolve, reject) => {{
+          if (p && p.html2canvas) {{
+            resolve(p.html2canvas);
+            return;
+          }}
+          const ps = pdoc.createElement("script");
+          ps.src = "https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js";
+          ps.onload = () => resolve(p.html2canvas);
+          ps.onerror = reject;
+          pdoc.head.appendChild(ps);
+        }});
+      }}
+
+      if (btnSave) {{
+        btnSave.onclick = async () => {{
+          try {{
+            setMsg("이미지 생성중…");
+            const start = pdoc.getElementById(capId + "__start");
+            const end   = pdoc.getElementById(capId + "__end");
+            if (!start || !end) {{
+              setMsg("캡처 마커를 찾지 못했어요.");
+              return;
+            }}
+
+            const startTop = start.closest('div[data-testid="stElementContainer"]')
+                          || start.closest('div.element-container')
+                          || start.parentElement;
+
+            const endTop   = end.closest('div[data-testid="stElementContainer"]')
+                          || end.closest('div.element-container')
+                          || end.parentElement;
+
+            let common = startTop ? startTop.parentElement : null;
+            while (common && endTop && !common.contains(endTop)) {{
+              common = common.parentElement;
+            }}
+            if (!common) {{
+              setMsg("캡처 범위 찾기 실패");
+              return;
+            }}
+
+            const kids = Array.from(common.children);
+            const si = kids.indexOf(startTop);
+            const ei = kids.indexOf(endTop);
+
+            if (si < 0 || ei < 0 || ei <= si) {{
+              setMsg("캡처 범위 인덱스 오류");
+              return;
+            }}
+
+            const wrapper = pdoc.createElement("div");
+            wrapper.style.position = "fixed";
+            wrapper.style.left = "-100000px";
+            wrapper.style.top = "0";
+            wrapper.style.background = "#ffffff";
+            const PAD = 24;
+            wrapper.style.boxSizing = "border-box";
+            wrapper.style.width = ((common.clientWidth || 1200) + (PAD*2)) + "px";
+            wrapper.style.padding = PAD + "px";
+            wrapper.style.margin = "0";
+
+            for (let i = si + 1; i < ei; i++) {{
+              wrapper.appendChild(kids[i].cloneNode(true));
+            }}
+
+            pdoc.body.appendChild(wrapper);
+
+            const h2c = await ensureHtml2Canvas();
+            const canvas = await h2c(wrapper, {{
+              backgroundColor: "#ffffff",
+              scale: 2,
+              useCORS: true
+            }});
+
+            wrapper.remove();
+
+            const headerH = 90;  // title area height
+            const out = pdoc.createElement("canvas");
+            out.width = canvas.width;
+            out.height = canvas.height + headerH;
+
+            const ctx = out.getContext("2d");
+            ctx.fillStyle = "#ffffff";
+            ctx.fillRect(0, 0, out.width, out.height);
+
+            // title text (fit-to-width)
+            ctx.fillStyle = "#111111";
+            let fontSize = 44;
+            ctx.textBaseline = "middle";
+            ctx.font = "800 " + fontSize + "px Pretendard, Arial, sans-serif";
+            while (ctx.measureText(titleText).width > out.width - 80 && fontSize > 24) {{
+              fontSize -= 2;
+              ctx.font = "800 " + fontSize + "px Pretendard, Arial, sans-serif";
+            }}
+            ctx.fillText(titleText, 40, headerH / 2);
+
+            // captured schedule
+            ctx.drawImage(canvas, 0, headerH);
+
+            const jpg = out.toDataURL("image/jpeg", 0.95);
+            const a = pdoc.createElement("a");
+            a.href = jpg;
+            a.download = fileName;
+            pdoc.body.appendChild(a);
+            a.click();
+            a.remove();
+
+            setMsg("저장 완료 ✅");
+          }} catch (e) {{
+            console.error(e);
+            setMsg("저장 실패 ❌");
+          }}
+        }};
+      }}
+    }})();
+    </script>
+    """,
+    height=90,
+)
+
+st.markdown("### 👤 인당 경기수")
             cnt = count_player_games(schedule)
 
             # ✅ 공평성 안내: 인당 경기수 차이는 최대 1게임이 되도록 시도합니다.
@@ -11246,10 +11406,201 @@ with tab4:
                 avg_for = rec["score_for"] / rec["G"]
                 avg_against = rec["score_against"] / rec["G"]
 
-                st.write(f"- 경기수: {rec['G']}")
+                                # =========================================================
+                # ✅ (추가) 매치업 하이라이트 + 일일 MVP 횟수
+                # =========================================================
+                def _pick_top_one(items, key_primary, key_secondary=None):
+                    if not items:
+                        return None
+                    if key_secondary is None:
+                        items.sort(key=lambda x: (-key_primary(x), str(x[0])))
+                    else:
+                        items.sort(key=lambda x: (-key_primary(x), -key_secondary(x), str(x[0])))
+                    return items[0]
+
+                def _is_valid_member(_name: str) -> bool:
+                    if not _name:
+                        return False
+                    if is_guest_name(_name, roster):
+                        return False
+                    if _name not in roster_by_name:
+                        return False
+                    return True
+
+                best_partner_text = "데이터 부족"
+                try:
+                    cand = []
+                    for name, r in (with_partner or {}).items():
+                        if not _is_valid_member(name):
+                            continue
+                        g = int(r.get("G", 0) or 0)
+                        if g <= 0:
+                            continue
+                        w = int(r.get("W", 0) or 0)
+                        winr = w / g
+                        cand.append((name, winr, g))
+                    top = _pick_top_one(cand, key_primary=lambda x: x[1], key_secondary=lambda x: x[2])
+                    if top:
+                        best_partner_text = f"{top[0]} (승률 {top[1]*100:.1f}%, {top[2]}경기)"
+                except Exception:
+                    best_partner_text = "데이터 부족"
+
+                rival_text = "데이터 부족"
+                try:
+                    cand = []
+                    for name, r in (vs_opponent or {}).items():
+                        if not _is_valid_member(name):
+                            continue
+                        g = int(r.get("G", 0) or 0)
+                        if g <= 0:
+                            continue
+                        d = int(r.get("D", 0) or 0)
+                        cand.append((name, d, g))
+                    if cand:
+                        max_d = max(x[1] for x in cand)
+                        if max_d > 0:
+                            cand2 = [(n, d, g) for (n, d, g) in cand if d == max_d]
+                            cand2.sort(key=lambda x: (-x[1], -x[2], str(x[0])))
+                            rival_text = f"{cand2[0][0]} (무승부 {cand2[0][1]}회, {cand2[0][2]}경기)"
+                        else:
+                            rival_text = "데이터 부족"
+                except Exception:
+                    rival_text = "데이터 부족"
+
+                nemesis_text = "데이터 부족"
+                try:
+                    cand = []
+                    for name, r in (vs_opponent or {}).items():
+                        if not _is_valid_member(name):
+                            continue
+                        g = int(r.get("G", 0) or 0)
+                        if g <= 0:
+                            continue
+                        l = int(r.get("L", 0) or 0)
+                        cand.append((name, l, g))
+                    if cand:
+                        max_l = max(x[1] for x in cand)
+                        if max_l > 0:
+                            cand2 = [(n, l, g) for (n, l, g) in cand if l == max_l]
+                            cand2.sort(key=lambda x: (-x[1], -x[2], str(x[0])))
+                            nemesis_text = f"{cand2[0][0]} (패배 {cand2[0][1]}회, {cand2[0][2]}경기)"
+                        else:
+                            nemesis_text = "데이터 부족"
+                except Exception:
+                    nemesis_text = "데이터 부족"
+
+                daily_mvp_count = 0
+                try:
+                    def _daily_mvp_name(_day_data: dict):
+                        _schedule = (_day_data or {}).get("schedule", []) or []
+                        _results = (_day_data or {}).get("results", {}) or {}
+                        if not _schedule:
+                            return None
+
+                        _recs = defaultdict(lambda: {"G": 0, "W": 0, "D": 0, "L": 0, "score_for": 0, "score_against": 0})
+                        _total_games = 0
+                        for _idx, (_gtype, _t1, _t2, _court) in enumerate(_schedule, start=1):
+                            _res = _results.get(str(_idx)) or _results.get(_idx) or {}
+                            s1 = _res.get("t1")
+                            s2 = _res.get("t2")
+                            _r = calc_result(s1, s2)
+                            if _r is None:
+                                continue
+                            _total_games += 1
+
+                            if _r == "D":
+                                for _p in _t1 + _t2:
+                                    if not _is_valid_member(_p):
+                                        continue
+                                    _recs[_p]["G"] += 1
+                                    _recs[_p]["D"] += 1
+                                    _recs[_p]["score_for"] += int(s1)
+                                    _recs[_p]["score_against"] += int(s2)
+                                continue
+
+                            _winners, _losers = (_t1, _t2) if _r == "W" else (_t2, _t1)
+                            for _p in _winners:
+                                if not _is_valid_member(_p):
+                                    continue
+                                _recs[_p]["G"] += 1
+                                _recs[_p]["W"] += 1
+                                _recs[_p]["score_for"] += int(max(s1, s2))
+                                _recs[_p]["score_against"] += int(min(s1, s2))
+                            for _p in _losers:
+                                if not _is_valid_member(_p):
+                                    continue
+                                _recs[_p]["G"] += 1
+                                _recs[_p]["L"] += 1
+                                _recs[_p]["score_for"] += int(min(s1, s2))
+                                _recs[_p]["score_against"] += int(max(s1, s2))
+
+                        if _total_games == 0:
+                            return None
+
+                        best_w = -1
+                        cands = []
+                        for _name, _rr in _recs.items():
+                            if not _is_valid_member(_name):
+                                continue
+                            if _rr.get("G", 0) == 0:
+                                continue
+                            w = int(_rr.get("W", 0) or 0)
+                            if w > best_w:
+                                best_w = w
+                                cands = [_name]
+                            elif w == best_w:
+                                cands.append(_name)
+
+                        if not cands or best_w < 0:
+                            return None
+
+                        def _diff(n):
+                            rr = _recs[n]
+                            return int(rr.get("score_for", 0) or 0) - int(rr.get("score_against", 0) or 0)
+
+                        best_d = max(_diff(n) for n in cands)
+                        winners = sorted([n for n in cands if _diff(n) == best_d])
+                        return winners[0] if winners else None
+
+                    for _d, _day_data in (sessions or {}).items():
+                        if _d == "전체":
+                            continue
+                        if not isinstance(_d, str) or len(_d) < 7 or _d[4] != "-":
+                            continue
+                        if month_key and (not str(_d).startswith(str(month_key))):
+                            continue
+                        _mvp = _daily_mvp_name(_day_data)
+                        if _mvp and _mvp == sel_player:
+                            daily_mvp_count += 1
+                except Exception:
+                    daily_mvp_count = 0
+
+                st.markdown(
+                    f"""
+                    <div style="
+                        margin:0.35rem 0 0.75rem 0;
+                        padding:0.75rem 1.0rem;
+                        border-radius:12px;
+                        background: #f8fafc;
+                        border:1px solid rgba(0,0,0,0.08);
+                        line-height:1.55;
+                        font-size:0.92rem;
+                    ">
+                        <div style="font-weight:800; margin-bottom:0.35rem;">🤝 매치업 하이라이트</div>
+                        <div>💍 <b>천생연분</b>: {best_partner_text}</div>
+                        <div>⚖️ <b>라이벌</b>: {rival_text}</div>
+                        <div>🧨 <b>천적</b>: {nemesis_text}</div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+
+st.write(f"- 경기수: {rec['G']}")
                 st.write(f"- 승 / 무 / 패: {rec['W']} / {rec['D']} / {rec['L']}")
                 st.write(f"- 승률: {win_rate:.1f}%")
                 st.write(f"- 점수(승=3, 무=1, 패=0): {rec['points']}")
+                if daily_mvp_count > 0:
+                    st.write(f"- 일일 MVP: {daily_mvp_count}회")
                 st.write(f"- 평균 득점: {avg_for:.2f} 점")
                 st.write(f"- 평균 실점: {avg_against:.2f} 점")
 
@@ -12150,6 +12501,27 @@ with tab5:
                 else:
                     partner_line = "데이터 부족 (복식 경기 없음)"
 
+
+
+# ☮️ 무승부왕 (공동우승 허용)
+draw_counts = []
+for name, r in recs_all.items():
+    if is_guest_name(name, roster):
+        continue
+    d = int(r.get("D", 0) or 0)
+    draw_counts.append((name, d))
+
+if draw_counts:
+    best_d = max(d for _, d in draw_counts)
+    if best_d > 0:
+        winners = [n for (n, d) in draw_counts if d == best_d]
+        names = ", ".join(sorted(winners))
+        draw_line = f"{names} (무승부 {best_d}회)"
+    else:
+        draw_line = "데이터 부족"
+else:
+    draw_line = "데이터 부족"
+
                 # 👑 출석왕 — recs(순위표)와 동일 기준(출석 날짜 set)
                 attendance_count = {
                     p: len(r["days"])
@@ -12285,6 +12657,7 @@ with tab5:
                             <li>🤝 우정왕&nbsp;:&nbsp;{partner_line}</li>
                             <li>👑 출석왕&nbsp;:&nbsp;{attendance_line}</li>
                             <li>🔥 연승왕&nbsp;:&nbsp;{streak_line}</li>
+                            <li>☮️ 무승부왕&nbsp;:&nbsp;{draw_line}</li>
                             <li>🥖 제빵왕&nbsp;:&nbsp;{baker_line}</li>
                         </ul>
                     </div>
@@ -12382,5 +12755,4 @@ with tab6:
         else:
             st.info("스코어보드 앱 URL을 secrets에 `SCOREBOARD_URL`로 넣어주면 버튼이 자동으로 활성화됩니다.")
             st.code(f"?{qs}")
-
 
